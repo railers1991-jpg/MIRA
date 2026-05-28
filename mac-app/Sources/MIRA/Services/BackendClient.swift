@@ -122,6 +122,37 @@ actor BackendClient {
         _ = try? await session.data(for: req)
     }
 
+    // MARK: - Sessions
+
+    func listSessions(limit: Int = 50) async throws -> [SessionSummary] {
+        var comps = URLComponents(url: base.appendingPathComponent("sessions"),
+                                  resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "limit", value: String(limit))]
+        let (data, _) = try await session.data(from: comps.url!)
+        return try JSONDecoder().decode([SessionSummary].self, from: data)
+    }
+
+    func getSession(id: String) async throws -> SessionDetail {
+        let (data, _) = try await session.data(
+            from: base.appendingPathComponent("session/\(id)")
+        )
+        return try JSONDecoder().decode(SessionDetail.self, from: data)
+    }
+
+    func deleteSession(id: String) async {
+        var req = URLRequest(url: base.appendingPathComponent("session/\(id)"))
+        req.httpMethod = "DELETE"
+        _ = try? await session.data(for: req)
+    }
+
+    func renameSession(id: String, title: String) async {
+        var req = URLRequest(url: base.appendingPathComponent("session/\(id)"))
+        req.httpMethod = "PATCH"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["title": title])
+        _ = try? await session.data(for: req)
+    }
+
     func health() async -> Bool {
         var req = URLRequest(url: base.appendingPathComponent("health"))
         req.timeoutInterval = 2

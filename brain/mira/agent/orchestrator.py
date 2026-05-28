@@ -11,11 +11,14 @@ Both paths share session memory keyed by `session_id`:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
 from typing import Any, AsyncIterator
 
+from ..config import settings
+from ..llm.anthropic_client import AnthropicClient
 from ..llm.router import LLMRouter
 from ..memory.store import MemoryStore
 from .tools import BRAIN_TOOLS, TOOLS
@@ -38,8 +41,11 @@ class Orchestrator:
     def __init__(self, memory: MemoryStore) -> None:
         self.memory = memory
         self.router = LLMRouter()
-        # session_id → message history (Anthropic-shaped: role+content lists)
+        # Internal key: '_plain:<sid>' or '<sid>' (agentic). Maps to a list
+        # of Anthropic-shaped messages.
         self.sessions: dict[str, list[dict]] = {}
+        # Title generation tasks per sid — kept so we can await on shutdown.
+        self._title_tasks: dict[str, asyncio.Task] = {}
 
     # ---- context ----
 
@@ -53,11 +59,70 @@ class Orchestrator:
         system = f"{SYSTEM_PROMPT}\n\n# Relevant memories\n{block}"
         return system, [n["id"] for n in recalled]
 
+    # ---- session persistence ----
+
+    def _key(self, sid: str, mode: str) -> str:
+        return f"_plain:{sid}" if mode == "plain" else sid
+
+    def _history(self, sid: str, mode: str) -> list[dict]:
+        """Load lazily from SQLite the first time a sid is referenced."""
+        key = self._key(sid, mode)
+        if key not in self.sessions:
+            persisted = self.memory.session_load(sid)
+            if persisted and persisted["mode"] == mode:
+                self.sessions[key] = persisted["history"]
+            else:
+                self.sessions[key] = []
+        return self.sessions[key]
+
+    def _persist(self, sid: str, mode: str) -> None:
+        history = self.sessions.get(self._key(sid, mode), [])
+        self.memory.session_save(sid, history, mode=mode)
+        # Spawn an auto-title task after the first exchange (2 messages).
+        if len(history) >= 2 and sid not in self._title_tasks:
+            if settings.anthropic_api_key:
+                self._title_tasks[sid] = asyncio.create_task(self._title_session(sid, mode))
+
+    async def _title_session(self, sid: str, mode: str) -> None:
+        try:
+            history = self.sessions.get(self._key(sid, mode), [])
+            preview = self._first_text(history, max_chars=600)
+            if not preview:
+                return
+            client = AnthropicClient()
+            text = await client.complete(
+                system=(
+                    "Write a 3-5 word title for this conversation. "
+                    "Plain text only, no quotes, no punctuation at the end."
+                ),
+                messages=[{"role": "user", "content": preview}],
+            )
+            title = text.strip().strip("\"'`").splitlines()[0][:60]
+            if title:
+                self.memory.session_set_title(sid, title)
+        except Exception:
+            log.exception("auto-title failed for %s", sid)
+        finally:
+            self._title_tasks.pop(sid, None)
+
+    @staticmethod
+    def _first_text(history: list[dict], max_chars: int = 600) -> str:
+        parts: list[str] = []
+        for msg in history[:4]:
+            content = msg.get("content")
+            if isinstance(content, str):
+                parts.append(f"{msg['role']}: {content}")
+            elif isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        parts.append(f"{msg['role']}: {block['text']}")
+        joined = "\n".join(parts)
+        return joined[:max_chars]
+
     # ---- plain chat with session memory ----
 
     def _plain_history(self, sid: str) -> list[dict]:
-        """Plain chat keeps a separate, text-only history under '_plain:<sid>'."""
-        return self.sessions.setdefault(f"_plain:{sid}", [])
+        return self._history(sid, "plain")
 
     async def respond(
         self, user_text: str, session_id: str | None = None, model_hint: str | None = None
@@ -77,6 +142,7 @@ class Orchestrator:
             meta={"role": "assistant", "model": resp.model_used},
             link_to=[user_id, *linked],
         )
+        self._persist(sid, "plain")
         return {
             "text": resp.text,
             "model_used": resp.model_used,
@@ -115,6 +181,7 @@ class Orchestrator:
             meta={"role": "assistant", "model": model_used},
             link_to=[user_id, *linked],
         )
+        self._persist(sid, "plain")
         yield _sse({"done": True, "neuron_id": assistant_id, "model_used": model_used})
 
     # ---- agentic chat with tools ----
@@ -126,7 +193,7 @@ class Orchestrator:
         tool_results: list[dict] | None,
     ) -> dict[str, Any]:
         sid = session_id or uuid.uuid4().hex
-        history = self.sessions.setdefault(sid, [])
+        history = self._history(sid, "agentic")
 
         # Build the next user turn.
         if user_text is not None:
@@ -179,6 +246,7 @@ class Orchestrator:
                 link_to=linked,
             )
 
+        self._persist(sid, "agentic")
         return {
             "session_id": sid,
             "text": result.text,
@@ -222,3 +290,5 @@ class Orchestrator:
 
     def reset_session(self, session_id: str) -> None:
         self.sessions.pop(session_id, None)
+        self.sessions.pop(f"_plain:{session_id}", None)
+        self.memory.session_delete(session_id)

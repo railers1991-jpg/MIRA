@@ -51,11 +51,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var isWakeWordEnabled: Bool { wakeWord.isActive }
 
     private func makePanel() -> NSPanel {
-        let view = ChatView()
-            .frame(minWidth: 480, minHeight: 600)
+        let view = ContentView()
+            .frame(minWidth: 720, minHeight: 600)
         let hosting = NSHostingController(rootView: view)
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 600),
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 600),
             styleMask: [.titled, .closable, .resizable, .fullSizeContentView, .nonactivatingPanel],
             backing: .buffered,
             defer: false

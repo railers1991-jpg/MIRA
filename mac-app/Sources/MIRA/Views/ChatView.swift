@@ -10,10 +10,24 @@ final class ChatViewModel: ObservableObject {
     @Published var lastToolSummary: String = ""
 
     let voice = VoiceController()
-    private var sessionId: String?
+    var sessionId: String?
+    var onTurn: (() -> Void)?
 
     func checkHealth() async {
         backendOnline = await BackendClient.shared.health()
+    }
+
+    func loadSession(_ id: String) async {
+        sessionId = id
+        messages = []
+        guard let detail = try? await BackendClient.shared.getSession(id: id) else { return }
+        agentMode = detail.mode == "agentic"
+        messages = detail.history.map { hm in
+            Message(
+                role: hm.role == "user" ? .user : .assistant,
+                text: hm.renderedText
+            )
+        }
     }
 
     func toggleRecording() async {
@@ -32,7 +46,10 @@ final class ChatViewModel: ObservableObject {
         input = ""
         messages.append(Message(role: .user, text: trimmed))
         isStreaming = true
-        defer { isStreaming = false }
+        defer {
+            isStreaming = false
+            onTurn?()
+        }
         if agentMode {
             await runAgentLoop(initialText: trimmed)
         } else {
@@ -112,6 +129,13 @@ final class ChatViewModel: ObservableObject {
 
 struct ChatView: View {
     @StateObject private var vm = ChatViewModel()
+    let initialSessionId: String?
+    let onTurn: (() -> Void)?
+
+    init(initialSessionId: String? = nil, onTurn: (() -> Void)? = nil) {
+        self.initialSessionId = initialSessionId
+        self.onTurn = onTurn
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -142,7 +166,13 @@ struct ChatView: View {
             Divider()
             inputBar
         }
-        .task { await vm.checkHealth() }
+        .task {
+            await vm.checkHealth()
+            vm.onTurn = onTurn
+            if let id = initialSessionId, id != vm.sessionId {
+                await vm.loadSession(id)
+            }
+        }
     }
 
     private var header: some View {

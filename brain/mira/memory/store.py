@@ -40,6 +40,16 @@ CREATE TABLE IF NOT EXISTS edge (
     FOREIGN KEY (dst_id) REFERENCES neuron(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_edge_src ON edge(src_id);
+
+CREATE TABLE IF NOT EXISTS session (
+    id TEXT PRIMARY KEY,
+    title TEXT,
+    mode TEXT NOT NULL DEFAULT 'plain',
+    history TEXT NOT NULL DEFAULT '[]',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_session_updated ON session(updated_at DESC);
 """
 
 
@@ -186,6 +196,79 @@ class MemoryStore:
         self.conn.executemany("UPDATE neuron SET strength = ? WHERE id = ?", updates)
         self.conn.commit()
         return len(updates)
+
+    # ---- sessions ----
+
+    def session_save(
+        self, sid: str, history: list, mode: str = "plain", title: str | None = None
+    ) -> None:
+        now = time.time()
+        payload = json.dumps(history, ensure_ascii=False)
+        existing = self.conn.execute(
+            "SELECT title FROM session WHERE id = ?", (sid,)
+        ).fetchone()
+        if existing is None:
+            self.conn.execute(
+                "INSERT INTO session(id, title, mode, history, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (sid, title, mode, payload, now, now),
+            )
+        else:
+            self.conn.execute(
+                "UPDATE session SET history = ?, mode = ?, updated_at = ?, "
+                "title = COALESCE(?, title) WHERE id = ?",
+                (payload, mode, now, title, sid),
+            )
+        self.conn.commit()
+
+    def session_load(self, sid: str) -> dict | None:
+        row = self.conn.execute(
+            "SELECT id, title, mode, history, created_at, updated_at FROM session "
+            "WHERE id = ?",
+            (sid,),
+        ).fetchone()
+        if not row:
+            return None
+        return {
+            "id": row["id"],
+            "title": row["title"],
+            "mode": row["mode"],
+            "history": json.loads(row["history"]),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def session_list(self, limit: int = 50) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT id, title, mode, created_at, updated_at, "
+            "       LENGTH(history) AS history_bytes "
+            "FROM session ORDER BY updated_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [
+            {
+                "id": r["id"],
+                "title": r["title"],
+                "mode": r["mode"],
+                "created_at": r["created_at"],
+                "updated_at": r["updated_at"],
+                "history_bytes": r["history_bytes"],
+            }
+            for r in rows
+        ]
+
+    def session_delete(self, sid: str) -> bool:
+        cur = self.conn.execute("DELETE FROM session WHERE id = ?", (sid,))
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    def session_set_title(self, sid: str, title: str) -> bool:
+        cur = self.conn.execute(
+            "UPDATE session SET title = ?, updated_at = ? WHERE id = ?",
+            (title, time.time(), sid),
+        )
+        self.conn.commit()
+        return cur.rowcount > 0
 
     def stats(self) -> dict:
         """Aggregate counts for /metrics."""

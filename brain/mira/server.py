@@ -124,6 +124,36 @@ async def session_reset(session_id: str) -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/sessions")
+async def sessions_list(limit: int = 50) -> list[dict]:
+    return app.state.memory.session_list(limit=limit)
+
+
+@app.get("/session/{session_id}")
+async def session_get(session_id: str) -> dict:
+    data = app.state.memory.session_load(session_id)
+    if not data:
+        raise HTTPException(404, "session not found")
+    return data
+
+
+class TitleRequest(BaseModel):
+    title: str
+
+
+@app.patch("/session/{session_id}")
+async def session_patch(session_id: str, req: TitleRequest) -> dict[str, str]:
+    if not app.state.memory.session_set_title(session_id, req.title):
+        raise HTTPException(404, "session not found")
+    return {"status": "ok"}
+
+
+@app.delete("/session/{session_id}")
+async def session_delete(session_id: str) -> dict[str, str]:
+    app.state.orchestrator.reset_session(session_id)
+    return {"status": "ok"}
+
+
 @app.get("/memory/recent")
 async def memory_recent(limit: int = 20) -> list[dict]:
     return app.state.memory.recent(limit=limit)

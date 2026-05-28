@@ -31,6 +31,8 @@ voice control, full system access, and hybrid cloud/local LLM routing.
 - [x] **Stage 4** — Vision: `read_screen` tool via ScreenCaptureKit → image block to Claude
 - [x] **Stage 5** — Self-learning: distillation, neuron decay, feedback signals
 - [x] **Stage 6** — Polish: conversation memory, autonomous scheduler, JSON SSE, multi-display vision, metrics, launchd
+- [x] **Stage 7** — More tools: clipboard, file read, type into focused field
+- [x] **Stage 8** — Persistent sessions: SQLite-backed, sidebar UI, auto-titles via Claude
 
 ## Quick start
 
