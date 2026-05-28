@@ -19,6 +19,14 @@ struct ToolCall: Identifiable, Codable, Equatable {
             return "Read the frontmost app"
         case "read_screen":
             return "Capture the screen and send it to MIRA"
+        case "read_clipboard":
+            return "Read the clipboard"
+        case "write_clipboard":
+            return "Write to clipboard:\n\n" + (input.dict?["text"]?.string ?? "—")
+        case "read_file":
+            return "Read file: " + (input.dict?["path"]?.string ?? "—")
+        case "type_text":
+            return "Type text:\n\n" + (input.dict?["text"]?.string ?? "—")
         default:
             return "Run tool: \(name)"
         }

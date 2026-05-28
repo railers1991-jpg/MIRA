@@ -89,6 +89,47 @@ TOOLS: list[dict] = [
         },
     },
     {
+        "name": "read_clipboard",
+        "description": "Read the user's current clipboard text. Returns empty if not text.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "write_clipboard",
+        "description": "Replace the user's clipboard with the given text.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"text": {"type": "string"}},
+            "required": ["text"],
+        },
+    },
+    {
+        "name": "read_file",
+        "description": (
+            "Read a file from the user's disk and return its contents. "
+            "Capped at ~200 KB; for larger files request a specific byte range."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Absolute or ~-prefixed path."},
+                "max_bytes": {"type": "integer", "default": 200_000, "maximum": 1_000_000},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "type_text",
+        "description": (
+            "Type the given text into whatever app currently has keyboard "
+            "focus, as if the user typed it. Use sparingly — disruptive."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"text": {"type": "string"}},
+            "required": ["text"],
+        },
+    },
+    {
         "name": "remember",
         "description": (
             "Persist a long-term fact about the user (preference, name, project, "

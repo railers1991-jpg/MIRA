@@ -71,7 +71,11 @@ Toggle ⚙︎ in the chat header to allow MIRA to use tools. Available actions:
 | `notify`          | Show a macOS notification                             |
 | `get_active_app`  | Read the frontmost app's bundle id, name, pid         |
 | `remember`        | Persist a fact/preference into long-term memory       |
-| `read_screen`     | Capture the main display and feed it to Claude (vision) |
+| `read_screen`     | Capture a display (multi-display via `display_index`) for Claude |
+| `read_clipboard`  | Read the current clipboard text                       |
+| `write_clipboard` | Replace the clipboard contents                         |
+| `read_file`       | Read a UTF-8 file (capped, ~-expansion supported)     |
+| `type_text`       | Type into the focused field via CGEvent (Accessibility) |
 
 Each tool kind asks for consent on first use; ⌃ Settings → Tools manages grants.
 Tool use always routes to Claude (Ollama function-calling is unreliable for now).

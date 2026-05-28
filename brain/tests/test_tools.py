@@ -26,6 +26,17 @@ def test_read_screen_tool_present() -> None:
     assert "read_screen" in TOOL_NAMES
 
 
+def test_new_stage7_tools_present() -> None:
+    for name in ("read_clipboard", "write_clipboard", "read_file", "type_text"):
+        assert name in TOOL_NAMES
+
+
+def test_read_file_max_bytes_default_and_cap() -> None:
+    schema = next(t for t in TOOLS if t["name"] == "read_file")["input_schema"]
+    assert schema["properties"]["max_bytes"]["default"] == 200_000
+    assert schema["properties"]["max_bytes"]["maximum"] == 1_000_000
+
+
 def test_tool_result_block_text_only() -> None:
     from mira.agent.orchestrator import Orchestrator
 

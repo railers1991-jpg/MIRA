@@ -26,9 +26,79 @@ final class ToolExecutor {
             return getActiveApp(call)
         case "read_screen":
             return await readScreen(call)
+        case "read_clipboard":
+            return readClipboard(call)
+        case "write_clipboard":
+            return writeClipboard(call)
+        case "read_file":
+            return readFile(call)
+        case "type_text":
+            return typeText(call)
         default:
             return ToolResult(id: call.id, output: "ERROR: unknown tool \(call.name)")
         }
+    }
+
+    private func readClipboard(_ call: ToolCall) -> ToolResult {
+        let pb = NSPasteboard.general
+        let text = pb.string(forType: .string) ?? ""
+        return ToolResult(id: call.id, output: text)
+    }
+
+    private func writeClipboard(_ call: ToolCall) -> ToolResult {
+        guard let text = call.input.dict?["text"]?.string else {
+            return ToolResult(id: call.id, output: "ERROR: missing text")
+        }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(text, forType: .string)
+        return ToolResult(id: call.id, output: "wrote \(text.count) chars")
+    }
+
+    private func readFile(_ call: ToolCall) -> ToolResult {
+        guard let raw = call.input.dict?["path"]?.string else {
+            return ToolResult(id: call.id, output: "ERROR: missing path")
+        }
+        let path = (raw as NSString).expandingTildeInPath
+        let maxBytes = Int(call.input.dict?["max_bytes"]?.number ?? 200_000)
+        let url = URL(fileURLWithPath: path)
+        do {
+            let data = try Data(contentsOf: url)
+            let capped = data.count > maxBytes ? data.prefix(maxBytes) : data
+            if let text = String(data: capped, encoding: .utf8) {
+                let suffix = data.count > maxBytes
+                    ? "\n\n…[truncated, \(data.count - maxBytes) more bytes]" : ""
+                return ToolResult(id: call.id, output: text + suffix)
+            }
+            return ToolResult(id: call.id, output: "ERROR: file is not UTF-8 (\(data.count) bytes)")
+        } catch {
+            return ToolResult(id: call.id, output: "ERROR: \(error.localizedDescription)")
+        }
+    }
+
+    private func typeText(_ call: ToolCall) -> ToolResult {
+        guard let text = call.input.dict?["text"]?.string else {
+            return ToolResult(id: call.id, output: "ERROR: missing text")
+        }
+        guard let source = CGEventSource(stateID: .combinedSessionState) else {
+            return ToolResult(id: call.id, output: "ERROR: failed to create event source")
+        }
+        // Emit Unicode keystrokes — works for any glyph the focused app accepts.
+        for scalar in text.unicodeScalars {
+            let utf16 = Array(String(scalar).utf16)
+            for which in [true, false] {
+                guard let event = CGEvent(
+                    keyboardEventSource: source, virtualKey: 0, keyDown: which
+                ) else { continue }
+                utf16.withUnsafeBufferPointer { buf in
+                    event.keyboardSetUnicodeString(
+                        stringLength: buf.count, unicodeString: buf.baseAddress
+                    )
+                }
+                event.post(tap: .cgAnnotatedSessionEventTap)
+            }
+        }
+        return ToolResult(id: call.id, output: "typed \(text.count) chars")
     }
 
     private func readScreen(_ call: ToolCall) async -> ToolResult {
