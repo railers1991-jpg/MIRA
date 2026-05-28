@@ -33,11 +33,12 @@ final class ToolExecutor {
 
     private func readScreen(_ call: ToolCall) async -> ToolResult {
         if #available(macOS 14, *) {
+            let index = Int(call.input.dict?["display_index"]?.number ?? 0)
             do {
-                let png = try await ScreenCapture.capturePNG()
+                let png = try await ScreenCapture.capturePNG(displayIndex: index)
                 return ToolResult(
                     id: call.id,
-                    output: "captured \(png.count) bytes",
+                    output: "captured display \(index): \(png.count) bytes",
                     image_b64: png.base64EncodedString()
                 )
             } catch {

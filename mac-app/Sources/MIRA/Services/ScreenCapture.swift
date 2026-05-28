@@ -2,19 +2,25 @@ import AppKit
 import Foundation
 import ScreenCaptureKit
 
-/// Captures the main display as a PNG using ScreenCaptureKit. Requires the
+/// Captures a chosen display as a PNG using ScreenCaptureKit. Requires the
 /// user to grant Screen Recording in System Settings → Privacy & Security.
 @available(macOS 14, *)
 enum ScreenCapture {
     enum CaptureError: Error {
         case noDisplay
+        case indexOutOfRange(requested: Int, available: Int)
         case captureFailed(String)
         case encodingFailed
     }
 
-    static func capturePNG(scale: CGFloat = 1.0) async throws -> Data {
+    static func capturePNG(displayIndex: Int = 0, scale: CGFloat = 1.0) async throws -> Data {
         let content = try await SCShareableContent.current
-        guard let display = content.displays.first else { throw CaptureError.noDisplay }
+        let displays = content.displays
+        guard !displays.isEmpty else { throw CaptureError.noDisplay }
+        guard displays.indices.contains(displayIndex) else {
+            throw CaptureError.indexOutOfRange(requested: displayIndex, available: displays.count)
+        }
+        let display = displays[displayIndex]
 
         let filter = SCContentFilter(display: display, excludingWindows: [])
         let config = SCStreamConfiguration()

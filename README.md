@@ -30,6 +30,7 @@ voice control, full system access, and hybrid cloud/local LLM routing.
 - [x] **Stage 3** — System control: tool-use loop (AppleScript, shell, open_url, notify, get_active_app, remember)
 - [x] **Stage 4** — Vision: `read_screen` tool via ScreenCaptureKit → image block to Claude
 - [x] **Stage 5** — Self-learning: distillation, neuron decay, feedback signals
+- [x] **Stage 6** — Polish: conversation memory, autonomous scheduler, JSON SSE, multi-display vision, metrics, launchd
 
 ## Quick start
 
@@ -96,5 +97,26 @@ curl -X POST localhost:7842/memory/<neuron_id>/feedback \
 
 Schedule `decay` and `distill` nightly via `launchd` or `cron`; MIRA will
 gradually forget noise while crystallising what matters about you.
+
+For autonomy out of the box, the brain runs the same loop itself every
+`MIRA_DISTILL_INTERVAL_S` seconds (default 24h). Set the variable to `0`
+to disable.
+
+## Run on login
+
+```bash
+# Stores brain logs in ~/.mira/logs and reads env from ~/.mira/env
+./scripts/install-launchd.sh
+echo 'ANTHROPIC_API_KEY=sk-ant-...' > ~/.mira/env
+launchctl kickstart -k "gui/$UID/com.mira.brain"
+```
+
+## Metrics
+
+```bash
+curl localhost:7842/metrics
+# {"uptime_s":…, "neurons_total":…, "neurons_by_kind":{…},
+#  "edges_total":…, "avg_strength":…, "sessions_active":…}
+```
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for design details.

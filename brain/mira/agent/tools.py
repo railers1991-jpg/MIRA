@@ -71,11 +71,22 @@ TOOLS: list[dict] = [
     {
         "name": "read_screen",
         "description": (
-            "Capture the user's main display as a PNG and feed it back to "
-            "you as an image. Use this to read what is currently on screen, "
-            "diagnose UI state, or assist with whatever the user is doing."
+            "Capture one of the user's displays as a PNG and feed it back "
+            "to you as an image. Use this to read what is currently on "
+            "screen, diagnose UI state, or assist with whatever the user "
+            "is doing. display_index defaults to 0 (main display)."
         ),
-        "input_schema": {"type": "object", "properties": {}},
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "display_index": {
+                    "type": "integer",
+                    "default": 0,
+                    "minimum": 0,
+                    "description": "Which display to capture (0-based).",
+                },
+            },
+        },
     },
     {
         "name": "remember",

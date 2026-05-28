@@ -64,25 +64,45 @@ actor BackendClient {
         return try JSONDecoder().decode(ChatResponse.self, from: data)
     }
 
-    /// Streaming chat (no tools). Yields text chunks until [DONE].
-    func chatStream(text: String) -> AsyncThrowingStream<String, Error> {
+    enum StreamEvent {
+        case session(String)
+        case chunk(String)
+        case done(neuronId: String?, modelUsed: String?)
+    }
+
+    /// Streaming chat (no tools). Yields JSON-encoded SSE events until done.
+    func chatStream(text: String, sessionId: String?) -> AsyncThrowingStream<StreamEvent, Error> {
         AsyncThrowingStream { continuation in
             Task {
                 do {
                     var req = URLRequest(url: base.appendingPathComponent("chat"))
                     req.httpMethod = "POST"
                     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                    let body: [String: Any] = ["text": text, "stream": true]
+                    var body: [String: Any] = ["text": text, "stream": true]
+                    if let sessionId { body["session_id"] = sessionId }
                     req.httpBody = try JSONSerialization.data(withJSONObject: body)
                     let (bytes, response) = try await session.bytes(for: req)
-                    guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                    guard let http = response as? HTTPURLResponse,
+                          (200..<300).contains(http.statusCode) else {
                         throw URLError(.badServerResponse)
                     }
                     for try await line in bytes.lines {
                         guard line.hasPrefix("data: ") else { continue }
-                        let chunk = String(line.dropFirst(6))
-                        if chunk == "[DONE]" { break }
-                        continuation.yield(chunk)
+                        let payload = String(line.dropFirst(6))
+                        guard let data = payload.data(using: .utf8),
+                              let obj = try? JSONSerialization.jsonObject(with: data)
+                                as? [String: Any] else { continue }
+                        if let chunk = obj["chunk"] as? String {
+                            continuation.yield(.chunk(chunk))
+                        } else if let sid = obj["session_id"] as? String {
+                            continuation.yield(.session(sid))
+                        } else if obj["done"] as? Bool == true {
+                            continuation.yield(.done(
+                                neuronId: obj["neuron_id"] as? String,
+                                modelUsed: obj["model_used"] as? String
+                            ))
+                            break
+                        }
                     }
                     continuation.finish()
                 } catch {

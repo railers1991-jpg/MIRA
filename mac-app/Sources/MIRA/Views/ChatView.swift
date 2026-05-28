@@ -45,9 +45,17 @@ final class ChatViewModel: ObservableObject {
         messages.append(assistant)
         let idx = messages.count - 1
         do {
-            for try await chunk in BackendClient.shared.chatStream(text: text) {
-                assistant.text += chunk
-                messages[idx] = assistant
+            for try await event in BackendClient.shared.chatStream(text: text, sessionId: sessionId) {
+                switch event {
+                case .session(let sid):
+                    sessionId = sid
+                case .chunk(let chunk):
+                    assistant.text += chunk
+                    messages[idx] = assistant
+                case .done(let neuronId, _):
+                    assistant.neuronId = neuronId
+                    messages[idx] = assistant
+                }
             }
             voice.speak(assistant.text)
         } catch {

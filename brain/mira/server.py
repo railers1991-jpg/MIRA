@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
 
@@ -13,6 +14,7 @@ from .agent.orchestrator import Orchestrator
 from .config import settings
 from .learning import distill_recent_turns
 from .memory.store import MemoryStore
+from .scheduler import scheduler
 
 log = logging.getLogger("mira")
 
@@ -61,8 +63,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings.ensure_dirs()
     app.state.memory = MemoryStore(settings.data_dir)
     app.state.orchestrator = Orchestrator(memory=app.state.memory)
+    app.state.started_at = time.time()
     log.info("MIRA brain ready on %s:%d", settings.host, settings.port)
-    yield
+    async with scheduler(app.state.memory):
+        yield
 
 
 app = FastAPI(title="MIRA Brain", version="0.3.0", lifespan=lifespan)
@@ -71,6 +75,19 @@ app = FastAPI(title="MIRA Brain", version="0.3.0", lifespan=lifespan)
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/metrics")
+async def metrics() -> dict[str, Any]:
+    memory: MemoryStore = app.state.memory
+    orch: Orchestrator = app.state.orchestrator
+    uptime = time.time() - app.state.started_at
+    return {
+        "uptime_s": round(uptime, 1),
+        "sessions_active": sum(1 for k in orch.sessions if not k.startswith("_plain:")),
+        "sessions_plain": sum(1 for k in orch.sessions if k.startswith("_plain:")),
+        **memory.stats(),
+    }
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -92,10 +109,12 @@ async def chat(req: ChatRequest) -> ChatResponse | StreamingResponse:
 
     if req.stream:
         return StreamingResponse(
-            orch.stream(req.text, model_hint=req.model_hint),
+            orch.stream(req.text, session_id=req.session_id, model_hint=req.model_hint),
             media_type="text/event-stream",
         )
-    result = await orch.respond(req.text, model_hint=req.model_hint)
+    result = await orch.respond(
+        req.text, session_id=req.session_id, model_hint=req.model_hint
+    )
     return ChatResponse(**result)
 
 

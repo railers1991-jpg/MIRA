@@ -1,7 +1,8 @@
 """Orchestrator with session state and tool-use loop.
 
-Two paths:
-- Plain chat (text in → text/stream out): legacy behavior, no tools.
+Both paths share session memory keyed by `session_id`:
+- Plain chat (streaming text out): conversation history is preserved across
+  turns; SSE emits JSON events `{chunk}` and ends with `{done, neuron_id}`.
 - Agentic chat (`tools_enabled=true`): Claude may emit tool_use blocks.
   The brain returns those to the Mac app, which runs them with user consent
   and posts back tool_result entries on the next request keyed by session_id.
@@ -10,6 +11,7 @@ Two paths:
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from typing import Any, AsyncIterator
@@ -25,6 +27,11 @@ You have persistent memory across sessions and the ability to control the Mac
 through tools (AppleScript, shell, notifications, etc.). Use tools when an
 action would help; explain briefly what you're doing before doing it. When
 unsure, ask one focused question. Be direct and warm."""
+
+
+def _sse(event: dict) -> bytes:
+    """Encode one SSE event as JSON — survives newlines and special chars."""
+    return f"data: {json.dumps(event, ensure_ascii=False)}\n\n".encode("utf-8")
 
 
 class Orchestrator:
@@ -46,16 +53,24 @@ class Orchestrator:
         system = f"{SYSTEM_PROMPT}\n\n# Relevant memories\n{block}"
         return system, [n["id"] for n in recalled]
 
-    # ---- legacy non-agentic chat (kept for streaming UX) ----
+    # ---- plain chat with session memory ----
 
-    async def respond(self, user_text: str, model_hint: str | None = None) -> dict:
+    def _plain_history(self, sid: str) -> list[dict]:
+        """Plain chat keeps a separate, text-only history under '_plain:<sid>'."""
+        return self.sessions.setdefault(f"_plain:{sid}", [])
+
+    async def respond(
+        self, user_text: str, session_id: str | None = None, model_hint: str | None = None
+    ) -> dict:
+        sid = session_id or uuid.uuid4().hex
+        history = self._plain_history(sid)
         system, linked = self._build_system(user_text)
         user_id = self.memory.remember(
             user_text, kind="turn", meta={"role": "user"}, link_to=linked
         )
-        resp = await self.router.complete(
-            system=system, messages=[{"role": "user", "content": user_text}], hint=model_hint
-        )
+        history.append({"role": "user", "content": user_text})
+        resp = await self.router.complete(system=system, messages=history, hint=model_hint)
+        history.append({"role": "assistant", "content": resp.text})
         assistant_id = self.memory.remember(
             resp.text,
             kind="turn",
@@ -66,29 +81,41 @@ class Orchestrator:
             "text": resp.text,
             "model_used": resp.model_used,
             "neurons_recalled": len(linked),
+            "session_id": sid,
             "assistant_neuron_id": assistant_id,
         }
 
-    async def stream(self, user_text: str, model_hint: str | None = None) -> AsyncIterator[bytes]:
+    async def stream(
+        self, user_text: str, session_id: str | None = None, model_hint: str | None = None
+    ) -> AsyncIterator[bytes]:
+        sid = session_id or uuid.uuid4().hex
+        history = self._plain_history(sid)
         system, linked = self._build_system(user_text)
         user_id = self.memory.remember(
             user_text, kind="turn", meta={"role": "user"}, link_to=linked
         )
+        history.append({"role": "user", "content": user_text})
+
+        yield _sse({"session_id": sid})
+
         full: list[str] = []
         model_used = ""
         async for chunk, model in self.router.stream(
-            system=system, messages=[{"role": "user", "content": user_text}], hint=model_hint
+            system=system, messages=history, hint=model_hint
         ):
             full.append(chunk)
             model_used = model
-            yield f"data: {chunk}\n\n".encode()
-        self.memory.remember(
-            "".join(full),
+            yield _sse({"chunk": chunk})
+
+        assistant_text = "".join(full)
+        history.append({"role": "assistant", "content": assistant_text})
+        assistant_id = self.memory.remember(
+            assistant_text,
             kind="turn",
             meta={"role": "assistant", "model": model_used},
             link_to=[user_id, *linked],
         )
-        yield b"data: [DONE]\n\n"
+        yield _sse({"done": True, "neuron_id": assistant_id, "model_used": model_used})
 
     # ---- agentic chat with tools ----
 

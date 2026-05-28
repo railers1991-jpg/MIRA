@@ -187,6 +187,23 @@ class MemoryStore:
         self.conn.commit()
         return len(updates)
 
+    def stats(self) -> dict:
+        """Aggregate counts for /metrics."""
+        rows = self.conn.execute(
+            "SELECT kind, COUNT(*) AS n FROM neuron GROUP BY kind"
+        ).fetchall()
+        kinds = {r["kind"]: r["n"] for r in rows}
+        total_edges = self.conn.execute("SELECT COUNT(*) AS n FROM edge").fetchone()["n"]
+        avg_strength = self.conn.execute(
+            "SELECT COALESCE(AVG(strength), 0) AS s FROM neuron"
+        ).fetchone()["s"]
+        return {
+            "neurons_total": sum(kinds.values()),
+            "neurons_by_kind": kinds,
+            "edges_total": total_edges,
+            "avg_strength": avg_strength,
+        }
+
     def prune(self, min_strength: float = 0.05, keep_kinds: tuple[str, ...] = ()) -> int:
         """Delete neurons whose strength fell below `min_strength`.
 

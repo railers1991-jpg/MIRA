@@ -21,6 +21,12 @@ class Settings(BaseSettings):
 
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
 
+    # Self-learning scheduler. Set distill_interval_s = 0 to disable.
+    distill_interval_s: int = 86_400  # daily
+    distill_limit: int = 200
+    decay_half_life_days: float = 30.0
+    decay_prune_below: float = 0.05
+
     def ensure_dirs(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         (self.data_dir / "chroma").mkdir(exist_ok=True)
