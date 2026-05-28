@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from .agent.orchestrator import Orchestrator
 from .config import settings
+from .learning import distill_recent_turns
 from .memory.store import MemoryStore
 
 log = logging.getLogger("mira")
@@ -43,6 +44,16 @@ class ChatResponse(BaseModel):
     neurons_recalled: int = 0
     session_id: str | None = None
     tool_calls: list[ToolCall] = []
+    assistant_neuron_id: str | None = None
+
+
+class FeedbackRequest(BaseModel):
+    signal: str  # "positive" | "negative"
+
+
+class DecayRequest(BaseModel):
+    half_life_days: float = 30.0
+    prune_below: float | None = 0.05
 
 
 @asynccontextmanager
@@ -104,6 +115,38 @@ async def memory_search(query: str, k: int = 8) -> list[dict]:
     if not query.strip():
         raise HTTPException(400, "empty query")
     return app.state.memory.recall(query, k=k)
+
+
+@app.post("/memory/{neuron_id}/feedback")
+async def memory_feedback(neuron_id: str, req: FeedbackRequest) -> dict[str, str]:
+    if req.signal not in {"positive", "negative"}:
+        raise HTTPException(400, "signal must be 'positive' or 'negative'")
+    ok = app.state.memory.feedback(neuron_id, req.signal)
+    if not ok:
+        raise HTTPException(404, "neuron not found")
+    return {"status": "ok"}
+
+
+@app.post("/learn/distill")
+async def learn_distill(limit: int = 50) -> dict[str, Any]:
+    result = await distill_recent_turns(app.state.memory, limit=limit)
+    return {
+        "added": result.added,
+        "skipped_duplicates": result.skipped_duplicates,
+        "items": result.raw,
+    }
+
+
+@app.post("/learn/decay")
+async def learn_decay(req: DecayRequest) -> dict[str, int]:
+    updated = app.state.memory.apply_decay(half_life_days=req.half_life_days)
+    pruned = 0
+    if req.prune_below is not None:
+        pruned = app.state.memory.prune(
+            min_strength=req.prune_below,
+            keep_kinds=("fact", "preference", "skill"),
+        )
+    return {"updated": updated, "pruned": pruned}
 
 
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s — %(message)s"

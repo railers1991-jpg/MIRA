@@ -132,6 +132,23 @@ just another input it can reason about.
 First-time use prompts the standard macOS Screen Recording permission;
 revoke any time from System Settings → Privacy & Security → Screen Recording.
 
+## Self-learning (Stage 5)
+
+Three mechanisms work together to turn raw turns into useful long-term memory:
+
+1. **Distillation** (`/learn/distill`) — Claude reads the last N turns and
+   proposes durable items (`fact` / `preference` / `skill` / `observation`).
+   Each candidate is deduplicated via the vector store before insert.
+2. **Decay** (`/learn/decay`) — every neuron's `strength` is multiplied by
+   `0.5 ^ (age_seconds / half_life_seconds)`. Unused memory fades.
+3. **Feedback** (`/memory/{id}/feedback`) — explicit ±1 reinforcement. The
+   Mac client gets the `assistant_neuron_id` in each chat response so it
+   can wire ⬆⬇ buttons to specific replies.
+
+Run distill + decay nightly via `launchd`/`cron` for autonomy. Facts,
+preferences and skills are protected from pruning even when their
+strength dips below the threshold.
+
 ## Security
 
 - Brain binds to `127.0.0.1` only; auth token in `~/.mira/token`

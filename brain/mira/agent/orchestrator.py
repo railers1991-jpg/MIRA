@@ -56,13 +56,18 @@ class Orchestrator:
         resp = await self.router.complete(
             system=system, messages=[{"role": "user", "content": user_text}], hint=model_hint
         )
-        self.memory.remember(
+        assistant_id = self.memory.remember(
             resp.text,
             kind="turn",
             meta={"role": "assistant", "model": resp.model_used},
             link_to=[user_id, *linked],
         )
-        return {"text": resp.text, "model_used": resp.model_used, "neurons_recalled": len(linked)}
+        return {
+            "text": resp.text,
+            "model_used": resp.model_used,
+            "neurons_recalled": len(linked),
+            "assistant_neuron_id": assistant_id,
+        }
 
     async def stream(self, user_text: str, model_hint: str | None = None) -> AsyncIterator[bytes]:
         system, linked = self._build_system(user_text)
@@ -138,8 +143,9 @@ class Orchestrator:
             # Loop once more so the model can use the remember-tool result.
             return await self.agentic(session_id=sid, user_text=None, tool_results=brain_results)
 
+        assistant_id: str | None = None
         if result.text:
-            self.memory.remember(
+            assistant_id = self.memory.remember(
                 result.text,
                 kind="turn",
                 meta={"role": "assistant", "model": model_used},
@@ -152,6 +158,7 @@ class Orchestrator:
             "model_used": model_used,
             "tool_calls": client_tool_calls,
             "neurons_recalled": len(linked),
+            "assistant_neuron_id": assistant_id,
         }
 
     @staticmethod

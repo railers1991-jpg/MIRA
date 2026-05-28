@@ -20,6 +20,7 @@ actor BackendClient {
         let neurons_recalled: Int
         let session_id: String?
         let tool_calls: [ToolCall]
+        let assistant_neuron_id: String?
     }
 
     /// Plain non-agentic chat (no tools). Returns the assistant text.
@@ -89,6 +90,16 @@ actor BackendClient {
                 }
             }
         }
+    }
+
+    /// Send ±1 feedback for a stored neuron. Fire-and-forget; errors logged.
+    func feedback(neuronId: String, positive: Bool) async {
+        var req = URLRequest(url: base.appendingPathComponent("memory/\(neuronId)/feedback"))
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: Any] = ["signal": positive ? "positive" : "negative"]
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        _ = try? await session.data(for: req)
     }
 
     func health() async -> Bool {

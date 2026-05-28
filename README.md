@@ -29,7 +29,7 @@ voice control, full system access, and hybrid cloud/local LLM routing.
 - [x] **Stage 2** — Voice: on-device STT (Speech framework), TTS, wake-word, ⌥⇧Space hotkey
 - [x] **Stage 3** — System control: tool-use loop (AppleScript, shell, open_url, notify, get_active_app, remember)
 - [x] **Stage 4** — Vision: `read_screen` tool via ScreenCaptureKit → image block to Claude
-- [ ] **Stage 5** — Self-learning: feedback loops, fine-tuning on user logs
+- [x] **Stage 5** — Self-learning: distillation, neuron decay, feedback signals
 
 ## Quick start
 
@@ -74,5 +74,27 @@ Toggle ⚙︎ in the chat header to allow MIRA to use tools. Available actions:
 
 Each tool kind asks for consent on first use; ⌃ Settings → Tools manages grants.
 Tool use always routes to Claude (Ollama function-calling is unreliable for now).
+
+## Self-learning (Stage 5)
+
+Three endpoints turn raw conversation history into longer-lived memory:
+
+```bash
+# Extract durable facts/preferences from the last N turns
+curl -X POST localhost:7842/learn/distill?limit=50
+
+# Decay strengths (Hebbian forgetting), then prune the weakest non-facts
+curl -X POST localhost:7842/learn/decay \
+  -H 'Content-Type: application/json' \
+  -d '{"half_life_days": 30, "prune_below": 0.05}'
+
+# Reinforce or weaken a single neuron (e.g. on user thumbs-up/down)
+curl -X POST localhost:7842/memory/<neuron_id>/feedback \
+  -H 'Content-Type: application/json' \
+  -d '{"signal": "positive"}'
+```
+
+Schedule `decay` and `distill` nightly via `launchd` or `cron`; MIRA will
+gradually forget noise while crystallising what matters about you.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for design details.

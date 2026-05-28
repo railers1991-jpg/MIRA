@@ -148,6 +148,59 @@ class MemoryStore:
         ).fetchall()
         return [self._row_to_dict(r) for r in rows]
 
+    # ---- learning ----
+
+    def feedback(self, neuron_id: str, signal: str) -> bool:
+        """Reinforce ('positive') or weaken ('negative') a single neuron.
+
+        Returns True if the neuron existed.
+        """
+        delta = 1.0 if signal == "positive" else -1.0 if signal == "negative" else 0.0
+        if delta == 0.0:
+            return False
+        cur = self.conn.execute(
+            "UPDATE neuron SET strength = MAX(0.0, strength + ?) WHERE id = ?",
+            (delta, neuron_id),
+        )
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    def apply_decay(self, half_life_days: float = 30.0) -> int:
+        """Exponentially decay strength for all neurons.
+
+        After `half_life_days` of accrued time since `last_used_at`, a
+        neuron's strength halves. Returns the number of neurons updated.
+        """
+        if half_life_days <= 0:
+            return 0
+        rows = self.conn.execute(
+            "SELECT id, last_used_at, strength FROM neuron"
+        ).fetchall()
+        now = time.time()
+        decay_per_sec = 0.5 ** (1.0 / (half_life_days * 86400.0))
+        updates: list[tuple[float, str]] = []
+        for r in rows:
+            age = max(0.0, now - r["last_used_at"])
+            new_strength = max(0.0, r["strength"] * (decay_per_sec**age))
+            updates.append((new_strength, r["id"]))
+        self.conn.executemany("UPDATE neuron SET strength = ? WHERE id = ?", updates)
+        self.conn.commit()
+        return len(updates)
+
+    def prune(self, min_strength: float = 0.05, keep_kinds: tuple[str, ...] = ()) -> int:
+        """Delete neurons whose strength fell below `min_strength`.
+
+        `keep_kinds` is an opt-out list — facts/preferences typically
+        shouldn't be pruned even when weak.
+        """
+        placeholders = ",".join("?" * len(keep_kinds)) or "''"
+        cur = self.conn.execute(
+            f"DELETE FROM neuron WHERE strength < ? AND kind NOT IN ({placeholders})",
+            (min_strength, *keep_kinds),
+        )
+        self.conn.commit()
+        return cur.rowcount
+
     @staticmethod
     def _row_to_dict(row: sqlite3.Row) -> dict:
         return {

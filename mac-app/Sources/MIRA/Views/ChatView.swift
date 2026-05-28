@@ -56,6 +56,13 @@ final class ChatViewModel: ObservableObject {
         }
     }
 
+    func sendFeedback(at index: Int, positive: Bool) async {
+        guard messages.indices.contains(index) else { return }
+        guard let nid = messages[index].neuronId else { return }
+        messages[index].feedback = positive ? .positive : .negative
+        await BackendClient.shared.feedback(neuronId: nid, positive: positive)
+    }
+
     private func runAgentLoop(initialText: String) async {
         var nextText: String? = initialText
         var nextResults: [ToolResult] = []
@@ -69,7 +76,11 @@ final class ChatViewModel: ObservableObject {
                 )
                 sessionId = response.session_id
                 if !response.text.isEmpty {
-                    messages.append(Message(role: .assistant, text: response.text))
+                    messages.append(Message(
+                        role: .assistant,
+                        text: response.text,
+                        neuronId: response.assistant_neuron_id
+                    ))
                     voice.speak(response.text)
                 }
                 if response.tool_calls.isEmpty { return }
@@ -101,8 +112,11 @@ struct ChatView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
-                        ForEach(vm.messages) { msg in
-                            MessageBubble(message: msg).id(msg.id)
+                        ForEach(Array(vm.messages.enumerated()), id: \.element.id) { idx, msg in
+                            MessageBubble(message: msg) { positive in
+                                Task { await vm.sendFeedback(at: idx, positive: positive) }
+                            }
+                            .id(msg.id)
                         }
                         if vm.voice.state == .listening, !vm.voice.transcript.isEmpty {
                             MessageBubble(message: Message(role: .user, text: vm.voice.transcript + " …"))
@@ -176,19 +190,49 @@ struct ChatView: View {
 
 private struct MessageBubble: View {
     let message: Message
+    var onFeedback: ((Bool) -> Void)? = nil
 
     var body: some View {
-        HStack {
+        HStack(alignment: .top) {
             if message.role == .user { Spacer(minLength: 40) }
-            Text(message.text.isEmpty ? "…" : message.text)
-                .textSelection(.enabled)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(message.role == .user ? Color.accentColor.opacity(0.2) : Color.secondary.opacity(0.12))
-                )
+            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 4) {
+                Text(message.text.isEmpty ? "…" : message.text)
+                    .textSelection(.enabled)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(message.role == .user
+                                  ? Color.accentColor.opacity(0.2)
+                                  : Color.secondary.opacity(0.12))
+                    )
+                if message.role == .assistant, message.neuronId != nil {
+                    feedbackBar
+                }
+            }
             if message.role == .assistant { Spacer(minLength: 40) }
         }
+    }
+
+    @ViewBuilder
+    private var feedbackBar: some View {
+        HStack(spacing: 12) {
+            Button {
+                onFeedback?(true)
+            } label: {
+                Image(systemName: message.feedback == .positive ? "hand.thumbsup.fill" : "hand.thumbsup")
+                    .foregroundStyle(message.feedback == .positive ? Color.green : Color.secondary)
+            }
+            .buttonStyle(.plain)
+            Button {
+                onFeedback?(false)
+            } label: {
+                Image(systemName: message.feedback == .negative ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+                    .foregroundStyle(message.feedback == .negative ? Color.red : Color.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .font(.caption)
+        .padding(.leading, 6)
     }
 }
