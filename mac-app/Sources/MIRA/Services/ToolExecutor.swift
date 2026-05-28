@@ -24,9 +24,27 @@ final class ToolExecutor {
             return await notify(call)
         case "get_active_app":
             return getActiveApp(call)
+        case "read_screen":
+            return await readScreen(call)
         default:
             return ToolResult(id: call.id, output: "ERROR: unknown tool \(call.name)")
         }
+    }
+
+    private func readScreen(_ call: ToolCall) async -> ToolResult {
+        if #available(macOS 14, *) {
+            do {
+                let png = try await ScreenCapture.capturePNG()
+                return ToolResult(
+                    id: call.id,
+                    output: "captured \(png.count) bytes",
+                    image_b64: png.base64EncodedString()
+                )
+            } catch {
+                return ToolResult(id: call.id, output: "ERROR: \(error)")
+            }
+        }
+        return ToolResult(id: call.id, output: "ERROR: screen capture requires macOS 14+")
     }
 
     // MARK: - Implementations

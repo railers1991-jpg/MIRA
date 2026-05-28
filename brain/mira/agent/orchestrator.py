@@ -103,10 +103,7 @@ class Orchestrator:
             history.append(
                 {
                     "role": "user",
-                    "content": [
-                        {"type": "tool_result", "tool_use_id": r["id"], "content": r["output"]}
-                        for r in tool_results
-                    ],
+                    "content": [self._tool_result_block(r) for r in tool_results],
                 }
             )
 
@@ -156,6 +153,32 @@ class Orchestrator:
             "tool_calls": client_tool_calls,
             "neurons_recalled": len(linked),
         }
+
+    @staticmethod
+    def _tool_result_block(r: dict) -> dict:
+        """Build an Anthropic tool_result block from a Mac-side tool result.
+
+        If the Mac attached a base64 PNG (e.g. read_screen), the result
+        content is a list of [text, image] blocks so Claude can see it.
+        Otherwise it's a plain text result.
+        """
+        if r.get("image_b64"):
+            return {
+                "type": "tool_result",
+                "tool_use_id": r["id"],
+                "content": [
+                    {"type": "text", "text": r.get("output", "")},
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": r["image_b64"],
+                        },
+                    },
+                ],
+            }
+        return {"type": "tool_result", "tool_use_id": r["id"], "content": r.get("output", "")}
 
     def _run_brain_tool(self, name: str, args: dict) -> str:
         if name == "remember":

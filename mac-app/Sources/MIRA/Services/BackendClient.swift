@@ -38,7 +38,11 @@ actor BackendClient {
         if let sessionId { body["session_id"] = sessionId }
         if let text { body["text"] = text }
         if !toolResults.isEmpty {
-            body["tool_results"] = toolResults.map { ["id": $0.id, "output": $0.output] }
+            body["tool_results"] = toolResults.map { r -> [String: Any] in
+                var item: [String: Any] = ["id": r.id, "output": r.output]
+                if let img = r.image_b64 { item["image_b64"] = img }
+                return item
+            }
         }
         return try await postChat(body)
     }

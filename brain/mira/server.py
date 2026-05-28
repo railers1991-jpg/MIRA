@@ -19,6 +19,7 @@ log = logging.getLogger("mira")
 class ToolResult(BaseModel):
     id: str
     output: str
+    image_b64: str | None = None
 
 
 class ChatRequest(BaseModel):

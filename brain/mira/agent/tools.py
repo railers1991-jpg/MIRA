@@ -69,6 +69,15 @@ TOOLS: list[dict] = [
         "input_schema": {"type": "object", "properties": {}},
     },
     {
+        "name": "read_screen",
+        "description": (
+            "Capture the user's main display as a PNG and feed it back to "
+            "you as an image. Use this to read what is currently on screen, "
+            "diagnose UI state, or assist with whatever the user is doing."
+        ),
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "remember",
         "description": (
             "Persist a long-term fact about the user (preference, name, project, "

@@ -17,6 +17,8 @@ struct ToolCall: Identifiable, Codable, Equatable {
             return "Show notification: " + (input.dict?["title"]?.string ?? "—")
         case "get_active_app":
             return "Read the frontmost app"
+        case "read_screen":
+            return "Capture the screen and send it to MIRA"
         default:
             return "Run tool: \(name)"
         }
@@ -26,6 +28,15 @@ struct ToolCall: Identifiable, Codable, Equatable {
 struct ToolResult: Codable, Equatable {
     let id: String
     let output: String
+    /// Optional base64-encoded PNG. When present, the brain attaches it as
+    /// an image content block in the tool_result so the model can see it.
+    var image_b64: String?
+
+    init(id: String, output: String, image_b64: String? = nil) {
+        self.id = id
+        self.output = output
+        self.image_b64 = image_b64
+    }
 }
 
 /// Minimal JSON value that round-trips through Codable. Used for arbitrary

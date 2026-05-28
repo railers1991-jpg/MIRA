@@ -28,7 +28,7 @@ voice control, full system access, and hybrid cloud/local LLM routing.
 - [x] **Stage 1** — Skeleton: chat, memory, hybrid LLM routing
 - [x] **Stage 2** — Voice: on-device STT (Speech framework), TTS, wake-word, ⌥⇧Space hotkey
 - [x] **Stage 3** — System control: tool-use loop (AppleScript, shell, open_url, notify, get_active_app, remember)
-- [ ] **Stage 4** — Vision: screen capture + multimodal understanding
+- [x] **Stage 4** — Vision: `read_screen` tool via ScreenCaptureKit → image block to Claude
 - [ ] **Stage 5** — Self-learning: feedback loops, fine-tuning on user logs
 
 ## Quick start
@@ -70,6 +70,7 @@ Toggle ⚙︎ in the chat header to allow MIRA to use tools. Available actions:
 | `notify`          | Show a macOS notification                             |
 | `get_active_app`  | Read the frontmost app's bundle id, name, pid         |
 | `remember`        | Persist a fact/preference into long-term memory       |
+| `read_screen`     | Capture the main display and feed it to Claude (vision) |
 
 Each tool kind asks for consent on first use; ⌃ Settings → Tools manages grants.
 Tool use always routes to Claude (Ollama function-calling is unreliable for now).

@@ -121,6 +121,17 @@ consent. The agent loop has a safety cap of 8 tool rounds per user turn.
 it, the brain stores the fact and re-invokes Claude with the result so
 the next reply incorporates it.
 
+## Vision (Stage 4)
+
+The `read_screen` tool captures the main display via `ScreenCaptureKit`
+(macOS 14+), returns a base64 PNG in the `image_b64` field of the tool
+result, and the brain expands that into an Anthropic image content block
+inside the `tool_result`. From Claude's perspective the screenshot becomes
+just another input it can reason about.
+
+First-time use prompts the standard macOS Screen Recording permission;
+revoke any time from System Settings → Privacy & Security → Screen Recording.
+
 ## Security
 
 - Brain binds to `127.0.0.1` only; auth token in `~/.mira/token`
