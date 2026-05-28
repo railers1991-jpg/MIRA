@@ -4,15 +4,34 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var panel: NSPanel?
+    private let hotkey = HotkeyManager()
+    private let wakeWord = WakeWordListener()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
             button.title = "✦ MIRA"
             button.action = #selector(togglePanel)
             button.target = self
         }
+
+        hotkey.onFire = { [weak self] in self?.togglePanel() }
+        hotkey.register()  // ⌥⇧Space
+
+        // Wake-word is opt-in; off by default. The Settings pane will
+        // expose a toggle once Stage 2 ships in user-facing form.
+        wakeWord.onWake = { [weak self] in
+            DispatchQueue.main.async {
+                if self?.panel?.isVisible != true { self?.togglePanel() }
+            }
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        hotkey.unregister()
+        wakeWord.stop()
     }
 
     @objc private func togglePanel() {
@@ -20,12 +39,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             panel.orderOut(nil)
             return
         }
-        if panel == nil {
-            panel = makePanel()
-        }
+        if panel == nil { panel = makePanel() }
         panel?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
+
+    func setWakeWordEnabled(_ enabled: Bool) {
+        if enabled { wakeWord.start() } else { wakeWord.stop() }
+    }
+
+    var isWakeWordEnabled: Bool { wakeWord.isActive }
 
     private func makePanel() -> NSPanel {
         let view = ChatView()

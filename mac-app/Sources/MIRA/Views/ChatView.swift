@@ -7,8 +7,20 @@ final class ChatViewModel: ObservableObject {
     @Published var isStreaming: Bool = false
     @Published var backendOnline: Bool = false
 
+    let voice = VoiceController()
+
     func checkHealth() async {
         backendOnline = await BackendClient.shared.health()
+    }
+
+    func toggleRecording() async {
+        if voice.state == .listening {
+            let final = voice.stopListening()
+            input = final
+            if !final.isEmpty { await send() }
+        } else {
+            try? await voice.startListening()
+        }
     }
 
     func send() async {
@@ -26,6 +38,7 @@ final class ChatViewModel: ObservableObject {
                 assistant.text += chunk
                 messages[assistantIndex] = assistant
             }
+            voice.speak(assistant.text)
         } catch {
             assistant.text = "⚠️ \(error.localizedDescription)"
             messages[assistantIndex] = assistant
@@ -46,6 +59,10 @@ struct ChatView: View {
                         ForEach(vm.messages) { msg in
                             MessageBubble(message: msg).id(msg.id)
                         }
+                        if vm.voice.state == .listening, !vm.voice.transcript.isEmpty {
+                            MessageBubble(message: Message(role: .user, text: vm.voice.transcript + " …"))
+                                .opacity(0.5)
+                        }
                     }
                     .padding()
                 }
@@ -62,7 +79,7 @@ struct ChatView: View {
     }
 
     private var header: some View {
-        HStack {
+        HStack(spacing: 8) {
             Text("MIRA").font(.headline)
             Circle()
                 .fill(vm.backendOnline ? .green : .red)
@@ -71,6 +88,9 @@ struct ChatView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer()
+            Toggle("🔊", isOn: $vm.voice.speakResponses)
+                .toggleStyle(.button)
+                .help("Speak assistant replies")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -78,10 +98,22 @@ struct ChatView: View {
 
     private var inputBar: some View {
         HStack(spacing: 8) {
+            Button {
+                Task { await vm.toggleRecording() }
+            } label: {
+                Image(systemName: vm.voice.state == .listening ? "stop.circle.fill" : "mic.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(vm.voice.state == .listening ? .red : .accentColor)
+                    .symbolEffect(.pulse, isActive: vm.voice.state == .listening)
+            }
+            .buttonStyle(.plain)
+            .help("Push-to-talk")
+
             TextField("Ask MIRA…", text: $vm.input, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(1...5)
                 .onSubmit { Task { await vm.send() } }
+
             Button {
                 Task { await vm.send() }
             } label: {
