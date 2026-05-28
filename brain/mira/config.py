@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     decay_half_life_days: float = 30.0
     decay_prune_below: float = 0.05
 
+    @property
+    def mcp_config_path(self) -> Path:
+        return self.data_dir / "mcp.json"
+
     def ensure_dirs(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         (self.data_dir / "chroma").mkdir(exist_ok=True)

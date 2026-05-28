@@ -20,6 +20,7 @@ from typing import Any, AsyncIterator
 from ..config import settings
 from ..llm.anthropic_client import AnthropicClient
 from ..llm.router import LLMRouter
+from ..mcp import MCPManager
 from ..memory.store import MemoryStore
 from .tools import BRAIN_TOOLS, TOOLS
 
@@ -38,14 +39,19 @@ def _sse(event: dict) -> bytes:
 
 
 class Orchestrator:
-    def __init__(self, memory: MemoryStore) -> None:
+    def __init__(self, memory: MemoryStore, mcp: MCPManager | None = None) -> None:
         self.memory = memory
         self.router = LLMRouter()
+        self.mcp = mcp
         # Internal key: '_plain:<sid>' or '<sid>' (agentic). Maps to a list
         # of Anthropic-shaped messages.
         self.sessions: dict[str, list[dict]] = {}
         # Title generation tasks per sid — kept so we can await on shutdown.
         self._title_tasks: dict[str, asyncio.Task] = {}
+
+    def _available_tools(self) -> list[dict]:
+        mcp_tools = self.mcp.tools() if self.mcp else []
+        return [*TOOLS, *mcp_tools]
 
     # ---- context ----
 
@@ -218,17 +224,20 @@ class Orchestrator:
             self.memory.remember(user_text, kind="turn", meta={"role": "user"}, link_to=linked)
 
         result, model_used = await self.router.complete_with_tools(
-            system=system, messages=history, tools=TOOLS
+            system=system, messages=history, tools=self._available_tools()
         )
 
         history.append({"role": "assistant", "content": result.raw_content})
 
-        # Handle brain-side tools inline so the Mac doesn't see them.
+        # Handle brain-side tools (local + MCP) inline so the Mac doesn't see them.
         client_tool_calls: list[dict] = []
         brain_results: list[dict] = []
         for use in result.tool_uses:
             if use.name in BRAIN_TOOLS:
                 output = self._run_brain_tool(use.name, use.input)
+                brain_results.append({"id": use.id, "output": output})
+            elif self.mcp and MCPManager.is_mcp_tool(use.name):
+                output = await self.mcp.call_tool(use.name, use.input)
                 brain_results.append({"id": use.id, "output": output})
             else:
                 client_tool_calls.append({"id": use.id, "name": use.name, "input": use.input})

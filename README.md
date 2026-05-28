@@ -34,6 +34,7 @@ voice control, full system access, and hybrid cloud/local LLM routing.
 - [x] **Stage 7** — More tools: clipboard, file read, type into focused field
 - [x] **Stage 8** — Persistent sessions: SQLite-backed, sidebar UI, auto-titles via Claude
 - [x] **Stage 9** — Dictate Anywhere: ⌃⌥V records from anywhere → types into the focused field
+- [x] **Stage 10** — MCP plugin host: connect any MCP server (Gmail, Calendar, Notion, web search…), tools auto-exposed to Claude
 
 ## Quick start
 
@@ -120,6 +121,25 @@ to disable.
 echo 'ANTHROPIC_API_KEY=sk-ant-...' > ~/.mira/env
 launchctl kickstart -k "gui/$UID/com.mira.brain"
 ```
+
+## MCP plugins
+
+MIRA hosts any [Model Context Protocol](https://modelcontextprotocol.io)
+server you configure — their tools appear under `mcp__<server>__<tool>`
+and are routed automatically through the same Claude tool-loop as
+MIRA's native tools.
+
+```bash
+cp docs/mcp.example.json ~/.mira/mcp.json
+# edit paths / env vars to point at your installed MCP servers
+launchctl kickstart -k "gui/$UID/com.mira.brain"   # restart to reconnect
+curl localhost:7842/tools                          # introspect what's available
+```
+
+The brain hands the merged tool list to Claude; when Claude calls an
+MCP tool, the brain executes it via the connected server and feeds the
+result back without round-tripping to the Mac. Local-only access:
+servers run as subprocesses, MCP traffic stays on stdio.
 
 ## Metrics
 

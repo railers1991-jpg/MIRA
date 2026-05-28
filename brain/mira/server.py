@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from .agent.orchestrator import Orchestrator
 from .config import settings
 from .learning import distill_recent_turns
+from .mcp import MCPManager
 from .memory.store import MemoryStore
 from .scheduler import scheduler
 
@@ -62,11 +63,16 @@ class DecayRequest(BaseModel):
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings.ensure_dirs()
     app.state.memory = MemoryStore(settings.data_dir)
-    app.state.orchestrator = Orchestrator(memory=app.state.memory)
+    app.state.mcp = MCPManager(settings.mcp_config_path)
+    await app.state.mcp.start()
+    app.state.orchestrator = Orchestrator(memory=app.state.memory, mcp=app.state.mcp)
     app.state.started_at = time.time()
     log.info("MIRA brain ready on %s:%d", settings.host, settings.port)
-    async with scheduler(app.state.memory):
-        yield
+    try:
+        async with scheduler(app.state.memory):
+            yield
+    finally:
+        await app.state.mcp.stop()
 
 
 app = FastAPI(title="MIRA Brain", version="0.3.0", lifespan=lifespan)
@@ -75,6 +81,16 @@ app = FastAPI(title="MIRA Brain", version="0.3.0", lifespan=lifespan)
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/tools")
+async def tools_list() -> dict[str, Any]:
+    orch: Orchestrator = app.state.orchestrator
+    tools = orch._available_tools()
+    return {
+        "tools": [{"name": t["name"], "description": t["description"]} for t in tools],
+        "mcp_servers": app.state.mcp.server_status(),
+    }
 
 
 @app.get("/metrics")
