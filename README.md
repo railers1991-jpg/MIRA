@@ -33,6 +33,7 @@ voice control, full system access, and hybrid cloud/local LLM routing.
 - [x] **Stage 6** — Polish: conversation memory, autonomous scheduler, JSON SSE, multi-display vision, metrics, launchd
 - [x] **Stage 7** — More tools: clipboard, file read, type into focused field
 - [x] **Stage 8** — Persistent sessions: SQLite-backed, sidebar UI, auto-titles via Claude
+- [x] **Stage 9** — Dictate Anywhere: ⌃⌥V records from anywhere → types into the focused field
 
 ## Quick start
 
@@ -59,6 +60,9 @@ For ⌥⇧Space global hotkey: System Settings → Privacy & Security → **Acce
 - **Wake word** — toggle in Settings → Voice. Listens for "Мира" / "MIRA" and
   opens the chat panel.
 - **TTS** — assistant replies are spoken automatically. Toggle 🔊 in the chat header.
+- **Dictate Anywhere** — ⌃⌥V from any app: HUD appears, you speak, ⌃⌥V again,
+  and the transcript is typed into whichever field has focus. No chat panel
+  needed, works in Notes/Slack/Xcode/Mail/anywhere.
 - All speech recognition runs **on-device** (Apple Silicon required for best results).
 
 ## Tools (Stage 3)

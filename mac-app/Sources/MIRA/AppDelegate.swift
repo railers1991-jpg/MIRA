@@ -1,11 +1,12 @@
 import AppKit
+import Carbon.HIToolbox
 import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var panel: NSPanel?
-    private let hotkey = HotkeyManager()
     private let wakeWord = WakeWordListener()
+    private let dictate = DictateController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -17,11 +18,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.target = self
         }
 
-        hotkey.onFire = { [weak self] in self?.togglePanel() }
-        hotkey.register()  // ⌥⇧Space
+        // ⌥⇧Space — toggle the chat panel
+        HotkeyManager.register(
+            keyCode: UInt32(kVK_Space),
+            modifiers: UInt32(optionKey | shiftKey)
+        ) { [weak self] in
+            self?.togglePanel()
+        }
+        // ⌃⌥V — toggle "Dictate Anywhere"
+        HotkeyManager.register(
+            keyCode: UInt32(kVK_ANSI_V),
+            modifiers: UInt32(controlKey | optionKey)
+        ) { [weak self] in
+            self?.dictate.toggle()
+        }
 
-        // Wake-word is opt-in; off by default. The Settings pane will
-        // expose a toggle once Stage 2 ships in user-facing form.
         wakeWord.onWake = { [weak self] in
             DispatchQueue.main.async {
                 if self?.panel?.isVisible != true { self?.togglePanel() }
@@ -30,7 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        hotkey.unregister()
+        HotkeyManager.unregisterAll()
         wakeWord.stop()
     }
 

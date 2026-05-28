@@ -38,6 +38,10 @@ struct SettingsView: View {
                 }
             Text("Push-to-talk: tap the mic in the chat panel, or press ⌥⇧Space to summon MIRA.")
                 .font(.caption).foregroundStyle(.secondary)
+            Divider()
+            Text("Dictate Anywhere: ⌃⌥V starts recording from anywhere in macOS; "
+                 + "press ⌃⌥V again to stop and have the transcript typed into the focused field.")
+                .font(.caption).foregroundStyle(.secondary)
         }
     }
 
