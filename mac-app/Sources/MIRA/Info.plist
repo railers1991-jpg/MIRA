@@ -22,5 +22,7 @@
     <string>MIRA transcribes your speech on-device to chat hands-free.</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>MIRA uses AppleScript to control other applications on your behalf.</string>
+    <key>NSSystemAdministrationUsageDescription</key>
+    <string>MIRA may run shell commands you approve to automate your Mac.</string>
 </dict>
 </plist>

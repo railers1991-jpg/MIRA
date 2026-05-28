@@ -87,6 +87,40 @@ Mic ─► AVAudioEngine ─► SFSpeechAudioBufferRecognitionRequest
 - Hotkey ⌥⇧Space registered via Carbon `RegisterEventHotKey` (requires
   proper `.app` bundle — see `scripts/build-app.sh`).
 
+## Tools / system control (Stage 3)
+
+Claude's native tool-use is the agent loop. The brain owns declarations
+(`brain/mira/agent/tools.py`); the Mac owns execution
+(`mac-app/Sources/MIRA/Services/ToolExecutor.swift`). Round-trip:
+
+```
+User: "open Safari and go to news.ycombinator.com"
+   ↓
+Brain → Claude with TOOLS schema + history
+   ↓
+Claude returns: text + tool_use[{name: run_applescript, input: {script: …}}]
+   ↓
+Brain responds to Mac: {text, tool_calls:[…], session_id}
+   ↓
+Mac: ConsentManager.askIfNeeded → ToolExecutor.execute(call)
+   ↓
+Mac → Brain: agenticChat(session_id, tool_results=[{id, output}])
+   ↓
+Brain re-calls Claude with appended tool_result blocks
+   ↓
+Claude returns final text (no more tool_use)
+   ↓
+Mac displays + speaks the reply
+```
+
+Per-kind consent is stored in `UserDefaults` under `mira.consents.v1`.
+`shell` is always-ask (never blanket-granted) — too powerful for one-time
+consent. The agent loop has a safety cap of 8 tool rounds per user turn.
+
+`remember` is handled brain-side and never round-trips: when Claude calls
+it, the brain stores the fact and re-invokes Claude with the result so
+the next reply incorporates it.
+
 ## Security
 
 - Brain binds to `127.0.0.1` only; auth token in `~/.mira/token`

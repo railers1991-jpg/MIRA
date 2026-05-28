@@ -27,7 +27,7 @@ voice control, full system access, and hybrid cloud/local LLM routing.
 
 - [x] **Stage 1** — Skeleton: chat, memory, hybrid LLM routing
 - [x] **Stage 2** — Voice: on-device STT (Speech framework), TTS, wake-word, ⌥⇧Space hotkey
-- [ ] **Stage 3** — System control: Accessibility API, AppleScript tools
+- [x] **Stage 3** — System control: tool-use loop (AppleScript, shell, open_url, notify, get_active_app, remember)
 - [ ] **Stage 4** — Vision: screen capture + multimodal understanding
 - [ ] **Stage 5** — Self-learning: feedback loops, fine-tuning on user logs
 
@@ -57,5 +57,21 @@ For ⌥⇧Space global hotkey: System Settings → Privacy & Security → **Acce
   opens the chat panel.
 - **TTS** — assistant replies are spoken automatically. Toggle 🔊 in the chat header.
 - All speech recognition runs **on-device** (Apple Silicon required for best results).
+
+## Tools (Stage 3)
+
+Toggle ⚙︎ in the chat header to allow MIRA to use tools. Available actions:
+
+| Tool              | What it does                                          |
+| ----------------- | ----------------------------------------------------- |
+| `run_applescript` | Run an AppleScript (app control, file ops, GUI)       |
+| `shell`           | Run a shell command (always asks per invocation)      |
+| `open_url`        | Open a URL in the default browser                     |
+| `notify`          | Show a macOS notification                             |
+| `get_active_app`  | Read the frontmost app's bundle id, name, pid         |
+| `remember`        | Persist a fact/preference into long-term memory       |
+
+Each tool kind asks for consent on first use; ⌃ Settings → Tools manages grants.
+Tool use always routes to Claude (Ollama function-calling is unreliable for now).
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for design details.

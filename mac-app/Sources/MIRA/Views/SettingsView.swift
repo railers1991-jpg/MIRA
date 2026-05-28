@@ -8,15 +8,13 @@ struct SettingsView: View {
 
     var body: some View {
         TabView {
-            backendTab
-                .tabItem { Label("Backend", systemImage: "brain") }
-            voiceTab
-                .tabItem { Label("Voice", systemImage: "waveform") }
-            aboutTab
-                .tabItem { Label("About", systemImage: "info.circle") }
+            backendTab.tabItem { Label("Backend", systemImage: "brain") }
+            voiceTab.tabItem { Label("Voice", systemImage: "waveform") }
+            toolsTab.tabItem { Label("Tools", systemImage: "wrench.and.screwdriver") }
+            aboutTab.tabItem { Label("About", systemImage: "info.circle") }
         }
         .padding()
-        .frame(width: 460, height: 280)
+        .frame(width: 480, height: 320)
     }
 
     private var backendTab: some View {
@@ -43,14 +41,53 @@ struct SettingsView: View {
         }
     }
 
+    private var toolsTab: some View {
+        ToolsSettings()
+    }
+
     private var aboutTab: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("MIRA").font(.title2.bold())
             Text("Memory-Integrated Reasoning Assistant").font(.callout)
-            Text("Stage 2: voice (STT + TTS + wake word)")
+            Text("Stage 3: tools (AppleScript, shell, notifications, …)")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 6)
+    }
+}
+
+@MainActor
+private struct ToolsSettings: View {
+    @State private var granted: Set<String> = ConsentManager.shared.grantedKinds()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Granted tool permissions")
+                .font(.headline)
+            if granted.isEmpty {
+                Text("No tools have been granted blanket permission yet. MIRA asks the first time each tool is used.")
+                    .font(.callout).foregroundStyle(.secondary)
+            } else {
+                ForEach(Array(granted).sorted(), id: \.self) { name in
+                    HStack {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                        Text(name).font(.system(.body, design: .monospaced))
+                        Spacer()
+                    }
+                }
+            }
+            Spacer()
+            HStack {
+                Spacer()
+                Button("Revoke all", role: .destructive) {
+                    ConsentManager.shared.revokeAll()
+                    granted = []
+                }
+            }
+            Text("Note: `shell` always asks for confirmation — there is no blanket grant.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 4)
     }
 }

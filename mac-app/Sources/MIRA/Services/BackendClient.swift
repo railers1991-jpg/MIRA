@@ -18,23 +18,48 @@ actor BackendClient {
         let text: String
         let model_used: String
         let neurons_recalled: Int
+        let session_id: String?
+        let tool_calls: [ToolCall]
     }
 
+    /// Plain non-agentic chat (no tools). Returns the assistant text.
     func chat(text: String) async throws -> ChatResponse {
+        try await postChat(["text": text, "stream": false])
+    }
+
+    /// Agentic chat round-trip: send either user text or tool results.
+    /// Returns whatever the brain says — may include further tool_calls.
+    func agenticChat(
+        sessionId: String?,
+        text: String?,
+        toolResults: [ToolResult]
+    ) async throws -> ChatResponse {
+        var body: [String: Any] = ["stream": false, "tools_enabled": true]
+        if let sessionId { body["session_id"] = sessionId }
+        if let text { body["text"] = text }
+        if !toolResults.isEmpty {
+            body["tool_results"] = toolResults.map { ["id": $0.id, "output": $0.output] }
+        }
+        return try await postChat(body)
+    }
+
+    private func postChat(_ body: [String: Any]) async throws -> ChatResponse {
         var req = URLRequest(url: base.appendingPathComponent("chat"))
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: [String: Any] = ["text": text, "stream": false]
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, response) = try await session.data(for: req)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw URLError(.badServerResponse)
+            let msg = String(data: data, encoding: .utf8) ?? "<no body>"
+            throw NSError(
+                domain: "BackendClient", code: (response as? HTTPURLResponse)?.statusCode ?? -1,
+                userInfo: [NSLocalizedDescriptionKey: msg]
+            )
         }
         return try JSONDecoder().decode(ChatResponse.self, from: data)
     }
 
-    /// Stream a reply token-by-token. Yields plain text chunks; terminates
-    /// when the server sends `[DONE]`.
+    /// Streaming chat (no tools). Yields text chunks until [DONE].
     func chatStream(text: String) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
             Task {

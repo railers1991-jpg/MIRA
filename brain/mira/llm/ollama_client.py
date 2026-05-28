@@ -25,7 +25,9 @@ class OllamaClient:
 
     async def complete(self, system: str, messages: list[dict]) -> str:
         async with httpx.AsyncClient(timeout=120.0) as client:
-            r = await client.post(f"{self.base}/api/chat", json=self._payload(system, messages, False))
+            r = await client.post(
+                f"{self.base}/api/chat", json=self._payload(system, messages, False)
+            )
             r.raise_for_status()
             return r.json()["message"]["content"]
 

@@ -6,8 +6,11 @@ final class ChatViewModel: ObservableObject {
     @Published var input: String = ""
     @Published var isStreaming: Bool = false
     @Published var backendOnline: Bool = false
+    @Published var agentMode: Bool = true   // Stage 3: tools on by default
+    @Published var lastToolSummary: String = ""
 
     let voice = VoiceController()
+    private var sessionId: String?
 
     func checkHealth() async {
         backendOnline = await BackendClient.shared.health()
@@ -28,21 +31,63 @@ final class ChatViewModel: ObservableObject {
         guard !trimmed.isEmpty, !isStreaming else { return }
         input = ""
         messages.append(Message(role: .user, text: trimmed))
-        var assistant = Message(role: .assistant, text: "")
-        messages.append(assistant)
-        let assistantIndex = messages.count - 1
         isStreaming = true
         defer { isStreaming = false }
+        if agentMode {
+            await runAgentLoop(initialText: trimmed)
+        } else {
+            await runPlainStream(text: trimmed)
+        }
+    }
+
+    private func runPlainStream(text: String) async {
+        var assistant = Message(role: .assistant, text: "")
+        messages.append(assistant)
+        let idx = messages.count - 1
         do {
-            for try await chunk in BackendClient.shared.chatStream(text: trimmed) {
+            for try await chunk in BackendClient.shared.chatStream(text: text) {
                 assistant.text += chunk
-                messages[assistantIndex] = assistant
+                messages[idx] = assistant
             }
             voice.speak(assistant.text)
         } catch {
             assistant.text = "⚠️ \(error.localizedDescription)"
-            messages[assistantIndex] = assistant
+            messages[idx] = assistant
         }
+    }
+
+    private func runAgentLoop(initialText: String) async {
+        var nextText: String? = initialText
+        var nextResults: [ToolResult] = []
+        var safety = 8  // hard cap on tool rounds per turn
+
+        while safety > 0 {
+            safety -= 1
+            do {
+                let response = try await BackendClient.shared.agenticChat(
+                    sessionId: sessionId, text: nextText, toolResults: nextResults
+                )
+                sessionId = response.session_id
+                if !response.text.isEmpty {
+                    messages.append(Message(role: .assistant, text: response.text))
+                    voice.speak(response.text)
+                }
+                if response.tool_calls.isEmpty { return }
+
+                lastToolSummary = response.tool_calls.map(\.humanSummary).joined(separator: "\n---\n")
+                var results: [ToolResult] = []
+                for call in response.tool_calls {
+                    let r = await ToolExecutor.shared.execute(call)
+                    results.append(r)
+                }
+                nextText = nil
+                nextResults = results
+            } catch {
+                messages.append(Message(role: .assistant, text: "⚠️ \(error.localizedDescription)"))
+                return
+            }
+        }
+        messages.append(Message(role: .assistant, text: "⚠️ tool loop hit safety limit"))
     }
 }
 
@@ -88,6 +133,9 @@ struct ChatView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer()
+            Toggle("⚙︎", isOn: $vm.agentMode)
+                .toggleStyle(.button)
+                .help("Allow MIRA to use tools (AppleScript, shell, etc.)")
             Toggle("🔊", isOn: $vm.voice.speakResponses)
                 .toggleStyle(.button)
                 .help("Speak assistant replies")

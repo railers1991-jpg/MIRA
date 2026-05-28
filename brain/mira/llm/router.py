@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import AsyncIterator
 
 from ..config import settings
-from .anthropic_client import AnthropicClient
+from .anthropic_client import AnthropicClient, CompletionResult
 from .ollama_client import OllamaClient
 
 log = logging.getLogger(__name__)
@@ -65,6 +65,17 @@ class LLMRouter:
             return RoutedResponse(text=text, model_used=f"claude:{settings.anthropic_model}")
         text = await self.ollama.complete(system=system, messages=messages)
         return RoutedResponse(text=text, model_used=f"ollama:{settings.ollama_model}")
+
+    async def complete_with_tools(
+        self, system: str, messages: list[dict], tools: list[dict]
+    ) -> tuple[CompletionResult, str]:
+        """Tool-use always routes to Claude — local models are unreliable here."""
+        if settings.anthropic_api_key is None:
+            raise RuntimeError("Tool use requires ANTHROPIC_API_KEY (Claude only for now)")
+        result = await self.claude.complete_with_tools(
+            system=system, messages=messages, tools=tools
+        )
+        return result, f"claude:{settings.anthropic_model}"
 
     async def stream(
         self, system: str, messages: list[dict], hint: str | None = None
