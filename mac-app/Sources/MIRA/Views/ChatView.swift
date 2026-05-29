@@ -10,7 +10,8 @@ final class ChatViewModel: ObservableObject {
     @Published var lastToolSummary: String = ""
     @Published var lastForgedSkill: String?
 
-    let voice = VoiceController()
+    // `var` (not `let`) so SwiftUI can form a Binding to voice.speakResponses.
+    var voice = VoiceController()
     var sessionId: String?
     var onTurn: (() -> Void)?
 
@@ -86,7 +87,7 @@ final class ChatViewModel: ObservableObject {
         messages.append(assistant)
         let idx = messages.count - 1
         do {
-            for try await event in BackendClient.shared.chatStream(text: text, sessionId: sessionId) {
+            for try await event in await BackendClient.shared.chatStream(text: text, sessionId: sessionId) {
                 switch event {
                 case .session(let sid):
                     sessionId = sid
