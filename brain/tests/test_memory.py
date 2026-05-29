@@ -32,15 +32,20 @@ def test_router_chooses_local_for_private(tmp_path: Path, monkeypatch) -> None:
     from mira.llm.router import LLMRouter
 
     monkeypatch.setattr(settings, "anthropic_api_key", "sk-test")
+    monkeypatch.setattr(settings, "provider", "auto")
     router = LLMRouter()
     assert router.choose("my password is hunter2") == "local"
     assert router.choose("Мой пароль 12345") == "local"
 
 
-def test_router_chooses_local_without_key(monkeypatch) -> None:
+def test_router_chooses_local_without_key_or_clis(monkeypatch) -> None:
     from mira.config import settings
     from mira.llm.router import LLMRouter
+    from mira.llm.subscription import ClaudeCodeProvider, CodexProvider
 
     monkeypatch.setattr(settings, "anthropic_api_key", None)
+    monkeypatch.setattr(settings, "provider", "auto")
+    monkeypatch.setattr(ClaudeCodeProvider, "available", staticmethod(lambda *_a: False))
+    monkeypatch.setattr(CodexProvider, "available", staticmethod(lambda *_a: False))
     router = LLMRouter()
     assert router.choose("Write me a long essay about quantum computing.") == "local"

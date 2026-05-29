@@ -105,6 +105,17 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/providers")
+async def providers() -> dict[str, Any]:
+    from .llm.router import LLMRouter
+
+    return {
+        "selected": settings.provider,
+        "available": LLMRouter.availability(),
+        "tools_require": "cloud",
+    }
+
+
 @app.get("/tools")
 async def tools_list() -> dict[str, Any]:
     orch: Orchestrator = app.state.orchestrator

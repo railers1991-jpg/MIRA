@@ -153,6 +153,19 @@ actor BackendClient {
         _ = try? await session.data(for: req)
     }
 
+    // MARK: - Providers
+
+    struct ProvidersInfo: Decodable {
+        let selected: String
+        let available: [String: Bool]
+        let tools_require: String
+    }
+
+    func providers() async throws -> ProvidersInfo {
+        let (data, _) = try await session.data(from: base.appendingPathComponent("providers"))
+        return try JSONDecoder().decode(ProvidersInfo.self, from: data)
+    }
+
     // MARK: - Skills
 
     func listSkills() async throws -> [Skill] {

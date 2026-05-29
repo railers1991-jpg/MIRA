@@ -98,29 +98,114 @@ pip install -q -e .
 deactivate
 ok "Brain installed"
 
-# ---- API key ---------------------------------------------------------------
+# ---- env helpers -----------------------------------------------------------
+
+env_set() {
+    # Upsert KEY=VALUE in $ENV_FILE (chmod 600).
+    local key="$1" val="$2"
+    touch "$ENV_FILE"; chmod 600 "$ENV_FILE"
+    grep -v "^${key}=" "$ENV_FILE" > "$ENV_FILE.tmp" 2>/dev/null || true
+    mv -f "$ENV_FILE.tmp" "$ENV_FILE" 2>/dev/null || true
+    echo "${key}=${val}" >> "$ENV_FILE"
+}
+
+# ---- detect what's already installed ---------------------------------------
+
+bold "Detecting available reasoning providers"
 
 have_key=""
-[[ -f "$ENV_FILE" ]] && grep -q '^ANTHROPIC_API_KEY=' "$ENV_FILE" && have_key="yes"
+[[ -n "${ANTHROPIC_API_KEY:-}" ]] && have_key="yes"
+[[ -f "$ENV_FILE" ]] && grep -q '^ANTHROPIC_API_KEY=.\+' "$ENV_FILE" && have_key="yes"
 
-if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
-    touch "$ENV_FILE"; chmod 600 "$ENV_FILE"
-    grep -v '^ANTHROPIC_API_KEY=' "$ENV_FILE" > "$ENV_FILE.tmp" 2>/dev/null || true
-    mv -f "$ENV_FILE.tmp" "$ENV_FILE" 2>/dev/null || true
-    echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY" >> "$ENV_FILE"
-    ok "Saved API key to $ENV_FILE"
-elif [[ -n "$have_key" ]]; then
-    ok "Existing API key found in $ENV_FILE"
-else
-    ask "Paste your Anthropic API key (or leave blank to add later): " KEY_INPUT
-    touch "$ENV_FILE"; chmod 600 "$ENV_FILE"
-    if [[ -n "${KEY_INPUT:-}" ]]; then
-        echo "ANTHROPIC_API_KEY=$KEY_INPUT" >> "$ENV_FILE"
+has_claude_cli=""; command -v claude >/dev/null 2>&1 && has_claude_cli="yes"
+has_codex_cli="";  command -v codex  >/dev/null 2>&1 && has_codex_cli="yes"
+has_ollama="";     command -v ollama >/dev/null 2>&1 && has_ollama="yes"
+
+print_provider() {  # name, present, detail
+    if [[ -n "$2" ]]; then ok "$1 — $3"; else printf '  \033[2m○ %s — %s\033[0m\n' "$1" "$3"; fi
+}
+print_provider "Anthropic API key"     "$have_key"        "metered key · powers agent mode / tool-use"
+print_provider "Claude Pro/Max (CLI)"  "$has_claude_cli"  "claude CLI — subscription reasoning"
+print_provider "ChatGPT/Codex (CLI)"   "$has_codex_cli"   "codex CLI — subscription reasoning"
+print_provider "Ollama (local)"        "$has_ollama"      "fully offline / private"
+
+# ---- choose a provider -----------------------------------------------------
+
+# Respect a non-interactive override.
+PROVIDER="${MIRA_PROVIDER:-}"
+
+if [[ -z "$PROVIDER" ]]; then
+    bold "Which provider should MIRA use?"
+    echo "  1) Auto        — pick the best available automatically (recommended)"
+    echo "  2) Anthropic API key$([[ -n "$have_key" ]] && echo '  [detected]')"
+    echo "  3) Claude Pro/Max subscription$([[ -n "$has_claude_cli" ]] && echo '  [detected]' || echo '  (needs: claude login)')"
+    echo "  4) ChatGPT/Codex subscription$([[ -n "$has_codex_cli" ]] && echo '  [detected]' || echo '  (needs: codex login)')"
+    echo "  5) Local only (Ollama)$([[ -n "$has_ollama" ]] && echo '  [detected]')"
+    ask "Choice [1]: " CHOICE
+    case "${CHOICE:-1}" in
+        1|"") PROVIDER="auto" ;;
+        2)    PROVIDER="api" ;;
+        3)    PROVIDER="claude_code" ;;
+        4)    PROVIDER="codex" ;;
+        5)    PROVIDER="local" ;;
+        *)    PROVIDER="auto" ;;
+    esac
+fi
+env_set "MIRA_PROVIDER" "$PROVIDER"
+ok "Provider set to: $PROVIDER"
+
+# ---- per-provider setup ----------------------------------------------------
+
+needs_key=""
+case "$PROVIDER" in
+    api) needs_key="yes" ;;
+    auto) [[ -z "$has_claude_cli$has_codex_cli$has_ollama" ]] && needs_key="yes" ;;
+esac
+
+if [[ "$PROVIDER" == "api" || "$needs_key" == "yes" || -n "${ANTHROPIC_API_KEY:-}" ]]; then
+    if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+        env_set "ANTHROPIC_API_KEY" "$ANTHROPIC_API_KEY"
         ok "Saved API key to $ENV_FILE"
+    elif [[ -n "$have_key" ]]; then
+        ok "Existing API key found in $ENV_FILE"
     else
-        warn "No key set. MIRA will run local-only (Ollama) until you add one to $ENV_FILE."
+        ask "Paste your Anthropic API key (blank to skip): " KEY_INPUT
+        if [[ -n "${KEY_INPUT:-}" ]]; then
+            env_set "ANTHROPIC_API_KEY" "$KEY_INPUT"
+            ok "Saved API key to $ENV_FILE"
+        else
+            warn "No key set; MIRA will fall back per its auto chain."
+        fi
     fi
 fi
+
+if [[ "$PROVIDER" == "claude_code" && -z "$has_claude_cli" ]]; then
+    warn "Claude Code CLI not found. Install it, then run 'claude login' (Pro/Max)."
+    warn "  npm install -g @anthropic-ai/claude-code   # or see docs"
+elif [[ "$PROVIDER" == "claude_code" ]]; then
+    info "Make sure you're logged in:  claude login   (uses your Pro/Max plan)"
+fi
+
+if [[ "$PROVIDER" == "codex" && -z "$has_codex_cli" ]]; then
+    warn "Codex CLI not found. Install it, then run 'codex login' (ChatGPT plan)."
+    warn "  npm install -g @openai/codex   # or see docs"
+elif [[ "$PROVIDER" == "codex" ]]; then
+    info "Make sure you're logged in:  codex login   (uses your ChatGPT plan)"
+fi
+
+if [[ "$PROVIDER" == "local" && -z "$has_ollama" ]]; then
+    warn "Ollama not found. Install from https://ollama.com then: ollama pull qwen2.5:7b"
+fi
+
+note_tools() {
+    case "$PROVIDER" in
+        claude_code|codex|local)
+            [[ -z "$have_key" ]] && warn \
+                "Heads-up: agent mode (system-control tools) needs an Anthropic API key. "\
+"Chat, voice & skills work on your subscription; add a key to $ENV_FILE for full tool-use." ;;
+    esac
+}
+note_tools
 
 # ---- app -------------------------------------------------------------------
 

@@ -62,6 +62,7 @@ local-only via [Ollama](https://ollama.com).
 - [x] **Stage 9** — Dictate Anywhere: ⌃⌥V records from anywhere → types into the focused field
 - [x] **Stage 10** — MCP plugin host: connect any MCP server (Gmail, Calendar, Notion, web search…), tools auto-exposed to Claude
 - [x] **Stage 11** — Self-forged skills: MIRA distils successful chats into named, reusable procedures that auto-expose as Claude tools and accumulate lessons
+- [x] **Stage 12** — Subscription providers: run reasoning through your Claude Pro/Max or ChatGPT/Codex plan via their CLIs — no API key required
 
 ## Run from source (development)
 
@@ -167,6 +168,35 @@ The brain hands the merged tool list to Claude; when Claude calls an
 MCP tool, the brain executes it via the connected server and feeds the
 result back without round-tripping to the Mac. Local-only access:
 servers run as subprocesses, MCP traffic stays on stdio.
+
+## Reasoning providers — use your subscription, not just an API key
+
+MIRA can drive its reasoning through whatever you already pay for. The
+installer detects what's present and lets you choose; you can also set
+`MIRA_PROVIDER` in `~/.mira/env` and restart the brain.
+
+| Provider | `MIRA_PROVIDER` | How it authenticates | Tool-use (agent mode) |
+| --- | --- | --- | --- |
+| Anthropic API | `api` | `ANTHROPIC_API_KEY` | ✅ |
+| Claude Pro/Max | `claude_code` | `claude login` (Claude Code CLI) | — (chat/skills only) |
+| ChatGPT/Codex | `codex` | `codex login` (Codex CLI) | — (chat/skills only) |
+| Ollama (local) | `local` | offline | — |
+| Auto | `auto` | api → claude_code → codex → local | ✅ if a key is present |
+
+The subscription providers shell out to the **official** `claude` / `codex`
+CLIs in non-interactive mode — MIRA never reads or stores your credentials;
+each CLI manages its own login session. Anything matching a privacy pattern
+(passwords, secrets, tokens) is always forced to the local model regardless
+of the selected provider.
+
+> Today the subscription path powers chat, skills, and reasoning. MIRA's
+> native system-control tool-loop still needs an Anthropic API key; bridging
+> MIRA's tools into the CLIs (so subscriptions get full agent mode too) is
+> the next step.
+
+```bash
+curl localhost:7842/providers   # see what's available and what's active
+```
 
 ## Skills — MIRA learns on the fly
 

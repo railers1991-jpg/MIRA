@@ -23,6 +23,8 @@ struct SettingsView: View {
             TextField("Brain URL", text: $backendURL)
             Text("Brain runs locally on \(backendURL). Edit and restart MIRA to apply.")
                 .font(.caption).foregroundStyle(.secondary)
+            Divider()
+            ProvidersView()
         }
     }
 
@@ -59,6 +61,51 @@ struct SettingsView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 6)
+    }
+}
+
+@MainActor
+private struct ProvidersView: View {
+    @State private var info: BackendClient.ProvidersInfo?
+
+    private let labels: [(key: String, name: String, detail: String)] = [
+        ("cloud", "Anthropic API", "metered key · powers tool-use / agent mode"),
+        ("claude_code", "Claude Pro/Max", "via the claude CLI subscription"),
+        ("codex", "ChatGPT / Codex", "via the codex CLI subscription"),
+        ("local", "Ollama (local)", "fully offline / private"),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("Reasoning providers").font(.subheadline.bold())
+                Spacer()
+                if let info {
+                    Text("active: \(info.selected)")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+            if let info {
+                ForEach(labels, id: \.key) { row in
+                    HStack(spacing: 6) {
+                        Image(systemName: (info.available[row.key] ?? false)
+                              ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle((info.available[row.key] ?? false) ? .green : .secondary)
+                        Text(row.name)
+                        Text(row.detail).font(.caption2).foregroundStyle(.tertiary)
+                        Spacer()
+                    }
+                }
+                Text("Choose with MIRA_PROVIDER (auto · api · subscription · claude_code · codex · local) "
+                     + "in ~/.mira/env, then restart the brain.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            } else {
+                Text("Loading provider status…").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .task {
+            info = try? await BackendClient.shared.providers()
+        }
     }
 }
 

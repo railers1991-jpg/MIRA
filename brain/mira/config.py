@@ -19,6 +19,16 @@ class Settings(BaseSettings):
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "qwen2.5:7b"
 
+    # Provider selection. One of:
+    #   auto | api | subscription | claude_code | codex | local
+    # "subscription" prefers Claude Code, then Codex. "auto" chains:
+    #   api key → claude_code → codex → local.
+    provider: str = "auto"
+    claude_cli_path: str = "claude"
+    codex_cli_path: str = "codex"
+    claude_cli_model: str | None = None  # e.g. "opus", "sonnet"
+    codex_cli_model: str | None = None  # e.g. "gpt-5-codex"
+
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
 
     # Self-learning scheduler. Set distill_interval_s = 0 to disable.
