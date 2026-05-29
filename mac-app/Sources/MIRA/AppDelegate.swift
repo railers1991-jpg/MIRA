@@ -38,6 +38,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if self?.panel?.isVisible != true { self?.togglePanel() }
             }
         }
+
+        // If the local brain isn't up (common right after a GUI-only DMG
+        // install), offer the one-line setup.
+        Task { await BrainBootstrap.checkAndOfferSetup() }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

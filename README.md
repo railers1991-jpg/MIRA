@@ -3,6 +3,32 @@
 A native macOS "Jarvis": menu-bar app + Python brain with persistent memory,
 voice control, full system access, and hybrid cloud/local LLM routing.
 
+## Install
+
+**One line** (sets up the brain, builds & installs the app, registers the
+login agent, asks for your API key):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/railers1991-jpg/mira/main/install.sh | bash
+```
+
+**Or download the app** — grab the latest `MIRA-*.dmg` from
+[Releases](https://github.com/railers1991-jpg/mira/releases), open it, and drag
+MIRA to Applications. On first launch the app checks for its local brain and,
+if it's missing, shows you the one-liner above.
+
+> The app is ad-hoc signed (no paid Apple Developer ID yet). First launch:
+> right-click MIRA → **Open** → **Open**, or run
+> `xattr -dr com.apple.quarantine /Applications/MIRA.app`.
+
+Requirements: macOS 14+, Python 3.11+, Xcode Command Line Tools. Apple Silicon
+recommended for on-device speech. Cloud reasoning needs an
+[Anthropic API key](https://console.anthropic.com/); without one MIRA runs
+local-only via [Ollama](https://ollama.com).
+
+**Update**: re-run the one-liner. **Uninstall**: `~/.mira/src/scripts/uninstall.sh`
+(add `--purge` to also delete memory/sessions/skills).
+
 ## Architecture
 
 ```
@@ -37,13 +63,13 @@ voice control, full system access, and hybrid cloud/local LLM routing.
 - [x] **Stage 10** — MCP plugin host: connect any MCP server (Gmail, Calendar, Notion, web search…), tools auto-exposed to Claude
 - [x] **Stage 11** — Self-forged skills: MIRA distils successful chats into named, reusable procedures that auto-expose as Claude tools and accumulate lessons
 
-## Quick start
+## Run from source (development)
 
 ```bash
 # 1. Brain
 cd brain
 python -m venv .venv && source .venv/bin/activate
-pip install -e .
+pip install -e '.[dev]'
 export ANTHROPIC_API_KEY=sk-ant-...
 mira-brain  # FastAPI on :7842
 
