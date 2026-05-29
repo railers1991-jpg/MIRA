@@ -117,7 +117,14 @@ cd "$MIRA_HOME/brain"
 # shellcheck disable=SC1091
 source .venv/bin/activate
 pip install -q --upgrade pip
-pip install -q -e .
+if [[ "${MIRA_WITH_EMBEDDINGS:-}" == "1" ]]; then
+    info "Installing semantic-memory extras (this pulls PyTorch — can take a while)…"
+    pip install -q -e '.[embeddings]'
+else
+    pip install -q -e .
+    info "Installed the lean brain. Semantic memory (vector recall) is optional;"
+    info "enable later with: MIRA_WITH_EMBEDDINGS=1 re-run, or pip install '.[embeddings]'."
+fi
 deactivate
 ok "Brain installed"
 

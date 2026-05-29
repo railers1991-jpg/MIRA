@@ -26,6 +26,11 @@ recommended for on-device speech. Cloud reasoning needs an
 [Anthropic API key](https://console.anthropic.com/); without one MIRA runs
 local-only via [Ollama](https://ollama.com).
 
+The base install is lean and fast. **Semantic memory** (vector recall) is an
+optional extra that pulls PyTorch — enable it with `MIRA_WITH_EMBEDDINGS=1`
+before the one-liner, or `pip install '.[embeddings]'` later. Without it,
+recall still works via keyword + neuron-graph search.
+
 **Update**: re-run the one-liner. **Uninstall**: `~/.mira/src/scripts/uninstall.sh`
 (add `--purge` to also delete memory/sessions/skills).
 

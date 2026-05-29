@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sqlite3
 import time
 import uuid
@@ -126,15 +127,19 @@ class MemoryStore:
     # ---- reads ----
 
     def recall(self, query: str, k: int = 8) -> list[dict]:
-        """Top-k by embedding similarity, then bump strength and edge weights."""
+        """Top-k by embedding similarity, then bump strength and edge weights.
+
+        When the optional embedding stack isn't installed, degrade to a
+        keyword search so recall stays query-relevant (not just recency).
+        """
         try:
             self._ensure_vector_store()
             assert self._chroma is not None
             res = self._chroma.query(query_embeddings=[self._embed(query)], n_results=k)
             ids: list[str] = res.get("ids", [[]])[0]
         except Exception:
-            log.exception("vector recall failed; falling back to recent")
-            return self.recent(k)
+            log.info("embeddings unavailable; using keyword recall")
+            return self._keyword_recall(query, k)
 
         if not ids:
             return []
@@ -157,6 +162,36 @@ class MemoryStore:
             "SELECT * FROM neuron ORDER BY created_at DESC LIMIT ?", (limit,)
         ).fetchall()
         return [self._row_to_dict(r) for r in rows]
+
+    def _keyword_recall(self, query: str, k: int = 8) -> list[dict]:
+        """ML-free recall: score neurons by overlapping query words.
+
+        Used when the embedding stack isn't installed. Ranks by number of
+        distinct query tokens present in the content, breaking ties by
+        strength then recency. Falls back to recent() when the query has
+        no usable tokens.
+        """
+        tokens = [t for t in re.findall(r"\w+", query.lower()) if len(t) >= 3]
+        if not tokens:
+            return self.recent(k)
+        rows = self.conn.execute("SELECT * FROM neuron").fetchall()
+        scored: list[tuple[int, float, float, sqlite3.Row]] = []
+        for r in rows:
+            content = r["content"].lower()
+            score = sum(1 for t in set(tokens) if t in content)
+            if score:
+                scored.append((score, r["strength"], r["created_at"], r))
+        if not scored:
+            return self.recent(k)
+        scored.sort(key=lambda x: (x[0], x[1], x[2]), reverse=True)
+        top = [r for *_rest, r in scored[:k]]
+        now = time.time()
+        self.conn.executemany(
+            "UPDATE neuron SET last_used_at = ?, strength = strength + 0.1 WHERE id = ?",
+            [(now, r["id"]) for r in top],
+        )
+        self.conn.commit()
+        return [self._row_to_dict(r) for r in top]
 
     # ---- learning ----
 
