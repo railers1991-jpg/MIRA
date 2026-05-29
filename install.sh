@@ -57,13 +57,36 @@ if ! xcode-select -p >/dev/null 2>&1; then
 fi
 ok "Xcode Command Line Tools present"
 
-PYTHON_BIN="$(command -v python3 || true)"
-[[ -n "$PYTHON_BIN" ]] || die "python3 not found. Install Python 3.11+ (e.g. 'brew install python@3.12')."
+# Find a Python 3.11+ interpreter. macOS ships 3.9 as `python3`, so we
+# probe versioned names first and accept MIRA_PYTHON as an explicit override.
+pick_python() {
+    if [[ -n "${MIRA_PYTHON:-}" ]]; then
+        echo "$MIRA_PYTHON"; return
+    fi
+    local cand path ver
+    for cand in python3.13 python3.12 python3.11 python3; do
+        path="$(command -v "$cand" 2>/dev/null || true)"
+        [[ -n "$path" ]] || continue
+        ver="$("$path" -c 'import sys; print("%d%02d" % sys.version_info[:2])' 2>/dev/null || echo 0)"
+        if [[ "${ver:-0}" =~ ^[0-9]+$ ]] && [[ "$ver" -ge 311 ]]; then
+            echo "$path"; return
+        fi
+    done
+    echo ""
+}
+
+PYTHON_BIN="$(pick_python)"
+if [[ -z "$PYTHON_BIN" ]]; then
+    cur="$(command -v python3 >/dev/null 2>&1 && python3 -V 2>&1 || echo 'none')"
+    die "Python 3.11+ not found (have: $cur).
+  Install it, then re-run this installer:
+    • Homebrew:  brew install python@3.12
+    • or download from https://www.python.org/downloads/macos/
+  Tip: you can also point MIRA at a specific interpreter with
+    MIRA_PYTHON=/opt/homebrew/bin/python3.12"
+fi
 PY_VER="$("$PYTHON_BIN" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
-case "$PY_VER" in
-    3.1[1-9]|3.[2-9][0-9]) ok "Python $PY_VER" ;;
-    *) die "Python 3.11+ required, found $PY_VER." ;;
-esac
+ok "Python $PY_VER ($PYTHON_BIN)"
 
 command -v git >/dev/null 2>&1 || die "git not found."
 command -v swift >/dev/null 2>&1 || warn "swift not found — the .app build may fail (set MIRA_NO_APP=1 to skip)."
