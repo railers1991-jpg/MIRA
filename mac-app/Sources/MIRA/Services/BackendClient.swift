@@ -9,8 +9,8 @@ actor BackendClient {
     init(base: URL = URL(string: "http://127.0.0.1:7842")!) {
         self.base = base
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 120
-        config.timeoutIntervalForResource = 600
+        config.timeoutIntervalForRequest = 600
+        config.timeoutIntervalForResource = 900
         self.session = URLSession(configuration: config)
     }
 
@@ -52,6 +52,10 @@ actor BackendClient {
         var req = URLRequest(url: base.appendingPathComponent("chat"))
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Agent mode drives a full Claude Code session (its own tool loop),
+        // which can run for minutes with no intermediate data — give it room
+        // before the idle timeout fires.
+        req.timeoutInterval = 600
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, response) = try await session.data(for: req)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {

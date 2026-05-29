@@ -156,7 +156,15 @@ class ClaudeCodeProvider:
         executes them via the brain bridge → Mac. We only get the final
         text back; tool side-effects already happened on the Mac.
         """
-        args = [self.cli, "-p", "--output-format", "text", "--mcp-config", mcp_config_path]
+        args = [
+            self.cli, "-p", "--output-format", "text",
+            "--mcp-config", mcp_config_path,
+            # Headless: there's no TTY to answer permission prompts, so bypass
+            # Claude Code's own gate. Safety stays with MIRA: mcp__mira__* tools
+            # run through the Mac's ConsentManager, and the user opted into
+            # agent mode explicitly.
+            "--permission-mode", "bypassPermissions",
+        ]
         if allowed_tools:
             args += ["--allowedTools", ",".join(allowed_tools)]
         if self.model:
