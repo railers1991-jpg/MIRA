@@ -22,12 +22,41 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import shutil
+from pathlib import Path
 from typing import AsyncIterator
 
 log = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT_S = 180
+
+
+def _resolve_cli(name: str, configured: str | None = None) -> str | None:
+    """Locate an agent CLI binary.
+
+    The brain often runs under launchd with a minimal PATH that excludes the
+    user's install dirs, so we probe common locations in addition to PATH.
+    `configured` may be a bare command name or an absolute path override.
+    Returns an absolute path, or None if not found.
+    """
+    candidate = configured or name
+    if os.path.isabs(candidate):
+        return candidate if os.access(candidate, os.X_OK) else None
+    found = shutil.which(candidate)
+    if found:
+        return found
+    home = Path.home()
+    for path in (
+        home / ".local/bin" / name,
+        home / ".claude/local" / name,
+        Path("/opt/homebrew/bin") / name,
+        Path("/usr/local/bin") / name,
+        home / "bin" / name,
+    ):
+        if path.is_file() and os.access(path, os.X_OK):
+            return str(path)
+    return None
 
 
 def _conversation_to_text(messages: list[dict]) -> str:
@@ -84,12 +113,12 @@ class ClaudeCodeProvider:
     """Drive the `claude` (Claude Code) CLI using the user's subscription."""
 
     def __init__(self, cli_path: str = "claude", model: str | None = None) -> None:
-        self.cli = cli_path
+        self.cli = _resolve_cli("claude", cli_path) or cli_path
         self.model = model
 
     @staticmethod
     def available(cli_path: str = "claude") -> bool:
-        return shutil.which(cli_path) is not None
+        return _resolve_cli("claude", cli_path) is not None
 
     @property
     def label(self) -> str:
@@ -142,12 +171,12 @@ class CodexProvider:
     """Drive the `codex` (OpenAI Codex) CLI using the user's subscription."""
 
     def __init__(self, cli_path: str = "codex", model: str | None = None) -> None:
-        self.cli = cli_path
+        self.cli = _resolve_cli("codex", cli_path) or cli_path
         self.model = model
 
     @staticmethod
     def available(cli_path: str = "codex") -> bool:
-        return shutil.which(cli_path) is not None
+        return _resolve_cli("codex", cli_path) is not None
 
     @property
     def label(self) -> str:
