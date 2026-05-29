@@ -12,7 +12,7 @@ import Speech
 @MainActor
 final class WakeWordListener: NSObject, ObservableObject {
     @Published private(set) var isActive: Bool = false
-    var onWake: (() -> Void)?
+    var onWake: (@MainActor () -> Void)?
 
     /// Phrases (lower-cased, accent-insensitive) that fire the wake event.
     var phrases: [String] = ["мира", "mira", "слушай мира", "hey mira"]

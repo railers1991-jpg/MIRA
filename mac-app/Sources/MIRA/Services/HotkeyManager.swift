@@ -8,7 +8,7 @@ import Foundation
 final class HotkeyManager {
     private struct Registration {
         let ref: EventHotKeyRef
-        let callback: () -> Void
+        let callback: @MainActor () -> Void
     }
 
     private static let signature: OSType = 0x4D495241  // 'MIRA'
@@ -21,7 +21,7 @@ final class HotkeyManager {
     static func register(
         keyCode: UInt32,
         modifiers: UInt32,
-        callback: @escaping () -> Void
+        callback: @escaping @MainActor () -> Void
     ) -> UInt32 {
         installHandlerIfNeeded()
         let id = nextID
@@ -64,7 +64,9 @@ final class HotkeyManager {
             )
             if hkID.signature == HotkeyManager.signature,
                let callback = HotkeyManager.registrations[hkID.id]?.callback {
-                DispatchQueue.main.async(execute: callback)
+                // Carbon hotkey events are delivered on the main thread, so we
+                // can run the main-actor callback synchronously.
+                MainActor.assumeIsolated { callback() }
             }
             return noErr
         }, 1, &spec, nil, nil)

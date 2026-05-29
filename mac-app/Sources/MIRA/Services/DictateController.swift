@@ -34,7 +34,9 @@ final class DictateController: NSObject, ObservableObject {
         // Mirror voice transcript into ours so the HUD updates live.
         voice.$transcript
             .receive(on: RunLoop.main)
-            .sink { [weak self] t in self?.transcript = t }
+            .sink { [weak self] t in
+                MainActor.assumeIsolated { self?.transcript = t }
+            }
             .store(in: &cancellables)
 
         do {
