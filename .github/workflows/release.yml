@@ -1,0 +1,67 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version label for the artifact (e.g. 0.11.0)'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-dmg:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app || true
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$(date +%Y.%m.%d)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build DMG
+        env:
+          MIRA_VERSION: ${{ steps.ver.outputs.version }}
+        run: scripts/make-dmg.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MIRA-${{ steps.ver.outputs.version }}-dmg
+          path: dist/*.dmg
+
+      - name: Attach to release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.dmg
+          body: |
+            ## MIRA ${{ steps.ver.outputs.version }}
+
+            **Download `MIRA-${{ steps.ver.outputs.version }}.dmg`** below, open it, and drag MIRA to Applications.
+
+            The app is ad-hoc signed (no paid Apple Developer ID yet), so on first launch:
+            right-click MIRA → **Open** → **Open**. Or run:
+            `xattr -dr com.apple.quarantine /Applications/MIRA.app`
+
+            On first run MIRA checks for its local brain; if it isn't set up it
+            will show you the one-line command. You can also install everything
+            (brain + app + login agent) directly:
+
+            ```
+            curl -fsSL https://raw.githubusercontent.com/railers1991-jpg/mira/main/install.sh | bash
+            ```

@@ -18,41 +18,91 @@ actor BackendClient {
         let text: String
         let model_used: String
         let neurons_recalled: Int
+        let session_id: String?
+        let tool_calls: [ToolCall]
+        let assistant_neuron_id: String?
     }
 
+    /// Plain non-agentic chat (no tools). Returns the assistant text.
     func chat(text: String) async throws -> ChatResponse {
+        try await postChat(["text": text, "stream": false])
+    }
+
+    /// Agentic chat round-trip: send either user text or tool results.
+    /// Returns whatever the brain says — may include further tool_calls.
+    func agenticChat(
+        sessionId: String?,
+        text: String?,
+        toolResults: [ToolResult]
+    ) async throws -> ChatResponse {
+        var body: [String: Any] = ["stream": false, "tools_enabled": true]
+        if let sessionId { body["session_id"] = sessionId }
+        if let text { body["text"] = text }
+        if !toolResults.isEmpty {
+            body["tool_results"] = toolResults.map { r -> [String: Any] in
+                var item: [String: Any] = ["id": r.id, "output": r.output]
+                if let img = r.image_b64 { item["image_b64"] = img }
+                return item
+            }
+        }
+        return try await postChat(body)
+    }
+
+    private func postChat(_ body: [String: Any]) async throws -> ChatResponse {
         var req = URLRequest(url: base.appendingPathComponent("chat"))
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body: [String: Any] = ["text": text, "stream": false]
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, response) = try await session.data(for: req)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw URLError(.badServerResponse)
+            let msg = String(data: data, encoding: .utf8) ?? "<no body>"
+            throw NSError(
+                domain: "BackendClient", code: (response as? HTTPURLResponse)?.statusCode ?? -1,
+                userInfo: [NSLocalizedDescriptionKey: msg]
+            )
         }
         return try JSONDecoder().decode(ChatResponse.self, from: data)
     }
 
-    /// Stream a reply token-by-token. Yields plain text chunks; terminates
-    /// when the server sends `[DONE]`.
-    func chatStream(text: String) -> AsyncThrowingStream<String, Error> {
+    enum StreamEvent {
+        case session(String)
+        case chunk(String)
+        case done(neuronId: String?, modelUsed: String?)
+    }
+
+    /// Streaming chat (no tools). Yields JSON-encoded SSE events until done.
+    func chatStream(text: String, sessionId: String?) -> AsyncThrowingStream<StreamEvent, Error> {
         AsyncThrowingStream { continuation in
             Task {
                 do {
                     var req = URLRequest(url: base.appendingPathComponent("chat"))
                     req.httpMethod = "POST"
                     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                    let body: [String: Any] = ["text": text, "stream": true]
+                    var body: [String: Any] = ["text": text, "stream": true]
+                    if let sessionId { body["session_id"] = sessionId }
                     req.httpBody = try JSONSerialization.data(withJSONObject: body)
                     let (bytes, response) = try await session.bytes(for: req)
-                    guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                    guard let http = response as? HTTPURLResponse,
+                          (200..<300).contains(http.statusCode) else {
                         throw URLError(.badServerResponse)
                     }
                     for try await line in bytes.lines {
                         guard line.hasPrefix("data: ") else { continue }
-                        let chunk = String(line.dropFirst(6))
-                        if chunk == "[DONE]" { break }
-                        continuation.yield(chunk)
+                        let payload = String(line.dropFirst(6))
+                        guard let data = payload.data(using: .utf8),
+                              let obj = try? JSONSerialization.jsonObject(with: data)
+                                as? [String: Any] else { continue }
+                        if let chunk = obj["chunk"] as? String {
+                            continuation.yield(.chunk(chunk))
+                        } else if let sid = obj["session_id"] as? String {
+                            continuation.yield(.session(sid))
+                        } else if obj["done"] as? Bool == true {
+                            continuation.yield(.done(
+                                neuronId: obj["neuron_id"] as? String,
+                                modelUsed: obj["model_used"] as? String
+                            ))
+                            break
+                        }
                     }
                     continuation.finish()
                 } catch {
@@ -60,6 +110,97 @@ actor BackendClient {
                 }
             }
         }
+    }
+
+    /// Send ±1 feedback for a stored neuron. Fire-and-forget; errors logged.
+    func feedback(neuronId: String, positive: Bool) async {
+        var req = URLRequest(url: base.appendingPathComponent("memory/\(neuronId)/feedback"))
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: Any] = ["signal": positive ? "positive" : "negative"]
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        _ = try? await session.data(for: req)
+    }
+
+    // MARK: - Sessions
+
+    func listSessions(limit: Int = 50) async throws -> [SessionSummary] {
+        var comps = URLComponents(url: base.appendingPathComponent("sessions"),
+                                  resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "limit", value: String(limit))]
+        let (data, _) = try await session.data(from: comps.url!)
+        return try JSONDecoder().decode([SessionSummary].self, from: data)
+    }
+
+    func getSession(id: String) async throws -> SessionDetail {
+        let (data, _) = try await session.data(
+            from: base.appendingPathComponent("session/\(id)")
+        )
+        return try JSONDecoder().decode(SessionDetail.self, from: data)
+    }
+
+    func deleteSession(id: String) async {
+        var req = URLRequest(url: base.appendingPathComponent("session/\(id)"))
+        req.httpMethod = "DELETE"
+        _ = try? await session.data(for: req)
+    }
+
+    func renameSession(id: String, title: String) async {
+        var req = URLRequest(url: base.appendingPathComponent("session/\(id)"))
+        req.httpMethod = "PATCH"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["title": title])
+        _ = try? await session.data(for: req)
+    }
+
+    // MARK: - Providers
+
+    struct ProvidersInfo: Decodable {
+        let selected: String
+        let available: [String: Bool]
+        let tools_require: String
+    }
+
+    func providers() async throws -> ProvidersInfo {
+        let (data, _) = try await session.data(from: base.appendingPathComponent("providers"))
+        return try JSONDecoder().decode(ProvidersInfo.self, from: data)
+    }
+
+    // MARK: - Skills
+
+    func listSkills() async throws -> [Skill] {
+        let (data, _) = try await session.data(from: base.appendingPathComponent("skills"))
+        return try JSONDecoder().decode([Skill].self, from: data)
+    }
+
+    func deleteSkill(name: String) async {
+        var req = URLRequest(url: base.appendingPathComponent("skill/\(name)"))
+        req.httpMethod = "DELETE"
+        _ = try? await session.data(for: req)
+    }
+
+    func forgeSkill(sessionId: String) async throws -> Skill? {
+        var req = URLRequest(url: base.appendingPathComponent("skills/forge"))
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: [
+            "session_id": sessionId, "mode": "agentic",
+        ])
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        return try JSONDecoder().decode(ForgedSkillResponse.self, from: data).created
+    }
+
+    func runSkill(name: String, params: [String: Any]) async throws -> String {
+        var req = URLRequest(url: base.appendingPathComponent("skill/\(name)/run"))
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: params)
+        let (data, _) = try await session.data(for: req)
+        let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        return (obj?["output"] as? String) ?? ""
     }
 
     func health() async -> Bool {

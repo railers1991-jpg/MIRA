@@ -11,7 +11,10 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "MIRA",
-            path: "Sources/MIRA"
+            path: "Sources/MIRA",
+            resources: [
+                .copy("Info.plist")
+            ]
         ),
         .testTarget(
             name: "MIRATests",

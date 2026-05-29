@@ -5,5 +5,9 @@ struct Message: Identifiable, Equatable {
     let id = UUID()
     let role: Role
     var text: String
+    var neuronId: String? = nil
+    var feedback: Feedback = .none
     let createdAt = Date()
+
+    enum Feedback { case none, positive, negative }
 }

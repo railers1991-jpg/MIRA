@@ -1,0 +1,29 @@
+{
+    "_comment": "Copy to ~/.mira/mcp.json. Each entry is launched as a subprocess at brain startup; its tools become available to MIRA under mcp__<name>__<tool>. See https://modelcontextprotocol.io for available servers.",
+    "servers": [
+        {
+            "name": "gmail",
+            "command": "node",
+            "args": ["/absolute/path/to/gmail-mcp-server/index.js"],
+            "env": {
+                "GMAIL_OAUTH_TOKEN_PATH": "~/.mira/gmail-token.json"
+            }
+        },
+        {
+            "name": "calendar",
+            "command": "python",
+            "args": ["-m", "google_calendar_mcp"],
+            "env": {
+                "GOOGLE_CALENDAR_CREDENTIALS": "~/.mira/gcal-credentials.json"
+            }
+        },
+        {
+            "name": "notion",
+            "command": "npx",
+            "args": ["-y", "@notionhq/notion-mcp-server"],
+            "env": {
+                "NOTION_API_KEY": "secret_..."
+            }
+        }
+    ]
+}

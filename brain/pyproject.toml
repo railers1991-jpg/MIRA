@@ -15,6 +15,7 @@ dependencies = [
     "numpy>=1.26",
     "python-dotenv>=1.0",
     "websockets>=13",
+    "mcp>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -27,6 +28,7 @@ dev = [
 
 [project.scripts]
 mira-brain = "mira.server:main"
+mira-tools-server = "mira.mcp_server:main"
 
 [build-system]
 requires = ["setuptools>=68"]

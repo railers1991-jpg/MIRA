@@ -40,6 +40,16 @@ CREATE TABLE IF NOT EXISTS edge (
     FOREIGN KEY (dst_id) REFERENCES neuron(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_edge_src ON edge(src_id);
+
+CREATE TABLE IF NOT EXISTS session (
+    id TEXT PRIMARY KEY,
+    title TEXT,
+    mode TEXT NOT NULL DEFAULT 'plain',
+    history TEXT NOT NULL DEFAULT '[]',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_session_updated ON session(updated_at DESC);
 """
 
 
@@ -147,6 +157,149 @@ class MemoryStore:
             "SELECT * FROM neuron ORDER BY created_at DESC LIMIT ?", (limit,)
         ).fetchall()
         return [self._row_to_dict(r) for r in rows]
+
+    # ---- learning ----
+
+    def feedback(self, neuron_id: str, signal: str) -> bool:
+        """Reinforce ('positive') or weaken ('negative') a single neuron.
+
+        Returns True if the neuron existed.
+        """
+        delta = 1.0 if signal == "positive" else -1.0 if signal == "negative" else 0.0
+        if delta == 0.0:
+            return False
+        cur = self.conn.execute(
+            "UPDATE neuron SET strength = MAX(0.0, strength + ?) WHERE id = ?",
+            (delta, neuron_id),
+        )
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    def apply_decay(self, half_life_days: float = 30.0) -> int:
+        """Exponentially decay strength for all neurons.
+
+        After `half_life_days` of accrued time since `last_used_at`, a
+        neuron's strength halves. Returns the number of neurons updated.
+        """
+        if half_life_days <= 0:
+            return 0
+        rows = self.conn.execute(
+            "SELECT id, last_used_at, strength FROM neuron"
+        ).fetchall()
+        now = time.time()
+        decay_per_sec = 0.5 ** (1.0 / (half_life_days * 86400.0))
+        updates: list[tuple[float, str]] = []
+        for r in rows:
+            age = max(0.0, now - r["last_used_at"])
+            new_strength = max(0.0, r["strength"] * (decay_per_sec**age))
+            updates.append((new_strength, r["id"]))
+        self.conn.executemany("UPDATE neuron SET strength = ? WHERE id = ?", updates)
+        self.conn.commit()
+        return len(updates)
+
+    # ---- sessions ----
+
+    def session_save(
+        self, sid: str, history: list, mode: str = "plain", title: str | None = None
+    ) -> None:
+        now = time.time()
+        payload = json.dumps(history, ensure_ascii=False)
+        existing = self.conn.execute(
+            "SELECT title FROM session WHERE id = ?", (sid,)
+        ).fetchone()
+        if existing is None:
+            self.conn.execute(
+                "INSERT INTO session(id, title, mode, history, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (sid, title, mode, payload, now, now),
+            )
+        else:
+            self.conn.execute(
+                "UPDATE session SET history = ?, mode = ?, updated_at = ?, "
+                "title = COALESCE(?, title) WHERE id = ?",
+                (payload, mode, now, title, sid),
+            )
+        self.conn.commit()
+
+    def session_load(self, sid: str) -> dict | None:
+        row = self.conn.execute(
+            "SELECT id, title, mode, history, created_at, updated_at FROM session "
+            "WHERE id = ?",
+            (sid,),
+        ).fetchone()
+        if not row:
+            return None
+        return {
+            "id": row["id"],
+            "title": row["title"],
+            "mode": row["mode"],
+            "history": json.loads(row["history"]),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def session_list(self, limit: int = 50) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT id, title, mode, created_at, updated_at, "
+            "       LENGTH(history) AS history_bytes "
+            "FROM session ORDER BY updated_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [
+            {
+                "id": r["id"],
+                "title": r["title"],
+                "mode": r["mode"],
+                "created_at": r["created_at"],
+                "updated_at": r["updated_at"],
+                "history_bytes": r["history_bytes"],
+            }
+            for r in rows
+        ]
+
+    def session_delete(self, sid: str) -> bool:
+        cur = self.conn.execute("DELETE FROM session WHERE id = ?", (sid,))
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    def session_set_title(self, sid: str, title: str) -> bool:
+        cur = self.conn.execute(
+            "UPDATE session SET title = ?, updated_at = ? WHERE id = ?",
+            (title, time.time(), sid),
+        )
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    def stats(self) -> dict:
+        """Aggregate counts for /metrics."""
+        rows = self.conn.execute(
+            "SELECT kind, COUNT(*) AS n FROM neuron GROUP BY kind"
+        ).fetchall()
+        kinds = {r["kind"]: r["n"] for r in rows}
+        total_edges = self.conn.execute("SELECT COUNT(*) AS n FROM edge").fetchone()["n"]
+        avg_strength = self.conn.execute(
+            "SELECT COALESCE(AVG(strength), 0) AS s FROM neuron"
+        ).fetchone()["s"]
+        return {
+            "neurons_total": sum(kinds.values()),
+            "neurons_by_kind": kinds,
+            "edges_total": total_edges,
+            "avg_strength": avg_strength,
+        }
+
+    def prune(self, min_strength: float = 0.05, keep_kinds: tuple[str, ...] = ()) -> int:
+        """Delete neurons whose strength fell below `min_strength`.
+
+        `keep_kinds` is an opt-out list — facts/preferences typically
+        shouldn't be pruned even when weak.
+        """
+        placeholders = ",".join("?" * len(keep_kinds)) or "''"
+        cur = self.conn.execute(
+            f"DELETE FROM neuron WHERE strength < ? AND kind NOT IN ({placeholders})",
+            (min_strength, *keep_kinds),
+        )
+        self.conn.commit()
+        return cur.rowcount
 
     @staticmethod
     def _row_to_dict(row: sqlite3.Row) -> dict:
