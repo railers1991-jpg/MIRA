@@ -2,6 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 import SwiftUI
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var panel: NSPanel?
@@ -34,9 +35,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         wakeWord.onWake = { [weak self] in
-            DispatchQueue.main.async {
-                if self?.panel?.isVisible != true { self?.togglePanel() }
-            }
+            guard let self else { return }
+            if self.panel?.isVisible != true { self.togglePanel() }
         }
 
         // If the local brain isn't up (common right after a GUI-only DMG
