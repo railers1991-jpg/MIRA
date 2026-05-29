@@ -9,9 +9,16 @@ set -euo pipefail
 cd "$(dirname "$0")/../mac-app"
 
 CONFIG="${CONFIG:-release}"
-swift build -c "$CONFIG"
 
-BIN="$(swift build -c "$CONFIG" --show-bin-path)/MIRA"
+# Force Swift 5 language mode: the app uses @MainActor/actor patterns that
+# Swift 6's default strict-concurrency mode would reject, and the in-manifest
+# language-mode APIs aren't available at package-description 6.0 on current
+# toolchains. -Xswiftc -swift-version 5 sets it at the compiler level.
+SWIFT5=(-Xswiftc -swift-version -Xswiftc 5)
+
+swift build -c "$CONFIG" "${SWIFT5[@]}"
+
+BIN="$(swift build -c "$CONFIG" "${SWIFT5[@]}" --show-bin-path)/MIRA"
 APP="$(pwd)/MIRA.app"
 
 rm -rf "$APP"
