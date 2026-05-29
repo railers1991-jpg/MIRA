@@ -1,6 +1,13 @@
 // swift-tools-version: 6.0
 import PackageDescription
 
+// Tools version 6.0 is required so the manifest links against the modern
+// PackageDescription (Swift 6 toolchains dropped the old init symbol). The
+// app relies on @MainActor/actor patterns written for Swift 5 semantics, so
+// each target pins the Swift 5 language mode to avoid Swift 6 strict-
+// concurrency rejections.
+let swift5: [SwiftSetting] = [.swiftLanguageMode(.v5)]
+
 let package = Package(
     name: "MIRA",
     platforms: [.macOS(.v14)],
@@ -14,17 +21,14 @@ let package = Package(
             path: "Sources/MIRA",
             resources: [
                 .copy("Info.plist")
-            ]
+            ],
+            swiftSettings: swift5
         ),
         .testTarget(
             name: "MIRATests",
             dependencies: ["MIRA"],
-            path: "Tests/MIRATests"
+            path: "Tests/MIRATests",
+            swiftSettings: swift5
         )
-    ],
-    // Keep Swift 5 semantics: the app relies on @MainActor/actor patterns
-    // that Swift 6's strict concurrency would otherwise reject. The 6.0
-    // tools version is required so the manifest links against the modern
-    // PackageDescription (Swift 6 toolchains dropped the old init symbol).
-    swiftLanguageModes: [.v5]
+    ]
 )
