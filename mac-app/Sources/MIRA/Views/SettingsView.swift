@@ -11,6 +11,7 @@ struct SettingsView: View {
             backendTab.tabItem { Label("Backend", systemImage: "brain") }
             voiceTab.tabItem { Label("Voice", systemImage: "waveform") }
             toolsTab.tabItem { Label("Tools", systemImage: "wrench.and.screwdriver") }
+            SkillsSettings().tabItem { Label("Skills", systemImage: "sparkles") }
             aboutTab.tabItem { Label("About", systemImage: "info.circle") }
         }
         .padding()
@@ -58,6 +59,97 @@ struct SettingsView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 6)
+    }
+}
+
+@MainActor
+private struct SkillsSettings: View {
+    @State private var skills: [Skill] = []
+    @State private var isLoading: Bool = false
+    @State private var error: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Self-forged skills").font(.headline)
+                Spacer()
+                Button {
+                    Task { await refresh() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.plain)
+            }
+            if let error {
+                Text(error).font(.caption).foregroundStyle(.red)
+            }
+            if skills.isEmpty {
+                Text("No skills yet. Have a conversation in agent mode that completes a useful task; "
+                     + "MIRA can then forge it into a reusable skill from the chat menu.")
+                    .font(.callout).foregroundStyle(.secondary)
+            } else {
+                List(skills) { skill in
+                    SkillRow(skill: skill, onDelete: {
+                        Task {
+                            await BackendClient.shared.deleteSkill(name: skill.name)
+                            await refresh()
+                        }
+                    })
+                }
+                .listStyle(.inset)
+            }
+            Spacer()
+            Text("Skills auto-expose as `skill__<name>` tools to Claude; "
+                 + "MIRA picks them when their when_to_use matches your request.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 4)
+        .task { await refresh() }
+    }
+
+    private func refresh() async {
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            skills = try await BackendClient.shared.listSkills()
+            error = nil
+        } catch {
+            self.error = "Could not load skills: \(error.localizedDescription)"
+        }
+    }
+}
+
+@MainActor
+private struct SkillRow: View {
+    let skill: Skill
+    let onDelete: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(skill.name)
+                    .font(.system(.body, design: .monospaced))
+                    .bold()
+                Spacer()
+                if skill.totalRuns > 0 {
+                    Text("\(skill.success_count)✓ \(skill.failure_count)✗")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Button(role: .destructive, action: onDelete) {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.red)
+            }
+            Text(skill.description).font(.callout).foregroundStyle(.secondary)
+            if !skill.lessons.isEmpty {
+                Text("Lessons: " + skill.lessons.suffix(3).joined(separator: " · "))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 

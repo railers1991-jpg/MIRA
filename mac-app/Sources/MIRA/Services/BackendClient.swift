@@ -153,6 +153,43 @@ actor BackendClient {
         _ = try? await session.data(for: req)
     }
 
+    // MARK: - Skills
+
+    func listSkills() async throws -> [Skill] {
+        let (data, _) = try await session.data(from: base.appendingPathComponent("skills"))
+        return try JSONDecoder().decode([Skill].self, from: data)
+    }
+
+    func deleteSkill(name: String) async {
+        var req = URLRequest(url: base.appendingPathComponent("skill/\(name)"))
+        req.httpMethod = "DELETE"
+        _ = try? await session.data(for: req)
+    }
+
+    func forgeSkill(sessionId: String) async throws -> Skill? {
+        var req = URLRequest(url: base.appendingPathComponent("skills/forge"))
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: [
+            "session_id": sessionId, "mode": "agentic",
+        ])
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        return try JSONDecoder().decode(ForgedSkillResponse.self, from: data).created
+    }
+
+    func runSkill(name: String, params: [String: Any]) async throws -> String {
+        var req = URLRequest(url: base.appendingPathComponent("skill/\(name)/run"))
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: params)
+        let (data, _) = try await session.data(for: req)
+        let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        return (obj?["output"] as? String) ?? ""
+    }
+
     func health() async -> Bool {
         var req = URLRequest(url: base.appendingPathComponent("health"))
         req.timeoutInterval = 2

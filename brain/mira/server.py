@@ -13,9 +13,11 @@ from pydantic import BaseModel
 from .agent.orchestrator import Orchestrator
 from .config import settings
 from .learning import distill_recent_turns
+from .llm.anthropic_client import AnthropicClient
 from .mcp import MCPManager
 from .memory.store import MemoryStore
 from .scheduler import scheduler
+from .skills import SkillExecutor, SkillForge, SkillStore
 
 log = logging.getLogger("mira")
 
@@ -63,9 +65,29 @@ class DecayRequest(BaseModel):
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings.ensure_dirs()
     app.state.memory = MemoryStore(settings.data_dir)
+    app.state.skills = SkillStore(settings.data_dir)
     app.state.mcp = MCPManager(settings.mcp_config_path)
     await app.state.mcp.start()
-    app.state.orchestrator = Orchestrator(memory=app.state.memory, mcp=app.state.mcp)
+
+    claude = AnthropicClient() if settings.anthropic_api_key else None
+    app.state.skill_executor = SkillExecutor(
+        store=app.state.skills, anthropic_client=claude, mcp=app.state.mcp
+    )
+    app.state.orchestrator = Orchestrator(
+        memory=app.state.memory,
+        mcp=app.state.mcp,
+        skills=app.state.skills,
+        skill_executor=app.state.skill_executor,
+    )
+    app.state.skill_forge = (
+        SkillForge(
+            store=app.state.skills,
+            anthropic_client=claude,
+            available_tools_provider=app.state.orchestrator._available_tools,
+        )
+        if claude
+        else None
+    )
     app.state.started_at = time.time()
     log.info("MIRA brain ready on %s:%d", settings.host, settings.port)
     try:
@@ -90,7 +112,85 @@ async def tools_list() -> dict[str, Any]:
     return {
         "tools": [{"name": t["name"], "description": t["description"]} for t in tools],
         "mcp_servers": app.state.mcp.server_status(),
+        "skills": [s["name"] for s in app.state.skills.list_all()],
     }
+
+
+class SkillUpsert(BaseModel):
+    name: str
+    description: str
+    when_to_use: str = ""
+    parameters: dict = {"type": "object", "properties": {}}
+    steps: list[dict] = []
+    returns: str = "{{_result}}"
+    lessons: list[str] = []
+
+
+class ForgeRequest(BaseModel):
+    session_id: str
+    mode: str = "agentic"
+
+
+class LessonRequest(BaseModel):
+    outcome: str
+
+
+@app.get("/skills")
+async def skills_list() -> list[dict]:
+    return app.state.skills.list_all()
+
+
+@app.get("/skill/{name}")
+async def skill_get(name: str) -> dict:
+    skill = app.state.skills.get(name)
+    if not skill:
+        raise HTTPException(404, "skill not found")
+    return skill
+
+
+@app.put("/skill/{name}")
+async def skill_put(name: str, req: SkillUpsert) -> dict[str, str]:
+    payload = req.model_dump()
+    payload["name"] = name
+    try:
+        app.state.skills.upsert(payload)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"status": "ok"}
+
+
+@app.delete("/skill/{name}")
+async def skill_delete(name: str) -> dict[str, str]:
+    if not app.state.skills.delete(name):
+        raise HTTPException(404, "skill not found")
+    return {"status": "ok"}
+
+
+@app.post("/skill/{name}/run")
+async def skill_run(name: str, params: dict[str, Any] | None = None) -> dict[str, str]:
+    output = await app.state.skill_executor.execute(name, params or {})
+    return {"output": output}
+
+
+@app.post("/skills/forge")
+async def skills_forge(req: ForgeRequest) -> dict[str, Any]:
+    if app.state.skill_forge is None:
+        raise HTTPException(503, "forge requires ANTHROPIC_API_KEY")
+    session = app.state.memory.session_load(req.session_id)
+    if not session:
+        raise HTTPException(404, "session not found")
+    skill = await app.state.skill_forge.forge_from_history(session["history"])
+    if skill is None:
+        return {"created": None}
+    return {"created": skill}
+
+
+@app.post("/skill/{name}/lesson")
+async def skill_lesson(name: str, req: LessonRequest) -> dict[str, Any]:
+    if app.state.skill_forge is None:
+        raise HTTPException(503, "reflection requires ANTHROPIC_API_KEY")
+    lesson = await app.state.skill_forge.reflect_lesson(name, req.outcome)
+    return {"lesson": lesson}
 
 
 @app.get("/metrics")

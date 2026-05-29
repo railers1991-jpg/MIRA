@@ -22,7 +22,10 @@ from ..llm.anthropic_client import AnthropicClient
 from ..llm.router import LLMRouter
 from ..mcp import MCPManager
 from ..memory.store import MemoryStore
+from ..skills import SkillExecutor, SkillStore
 from .tools import BRAIN_TOOLS, TOOLS
+
+SKILL_PREFIX = "skill__"
 
 log = logging.getLogger(__name__)
 
@@ -39,10 +42,18 @@ def _sse(event: dict) -> bytes:
 
 
 class Orchestrator:
-    def __init__(self, memory: MemoryStore, mcp: MCPManager | None = None) -> None:
+    def __init__(
+        self,
+        memory: MemoryStore,
+        mcp: MCPManager | None = None,
+        skills: SkillStore | None = None,
+        skill_executor: SkillExecutor | None = None,
+    ) -> None:
         self.memory = memory
         self.router = LLMRouter()
         self.mcp = mcp
+        self.skills = skills
+        self.skill_executor = skill_executor
         # Internal key: '_plain:<sid>' or '<sid>' (agentic). Maps to a list
         # of Anthropic-shaped messages.
         self.sessions: dict[str, list[dict]] = {}
@@ -51,7 +62,8 @@ class Orchestrator:
 
     def _available_tools(self) -> list[dict]:
         mcp_tools = self.mcp.tools() if self.mcp else []
-        return [*TOOLS, *mcp_tools]
+        skill_tools = self.skills.as_tools() if self.skills else []
+        return [*TOOLS, *mcp_tools, *skill_tools]
 
     # ---- context ----
 
@@ -238,6 +250,11 @@ class Orchestrator:
                 brain_results.append({"id": use.id, "output": output})
             elif self.mcp and MCPManager.is_mcp_tool(use.name):
                 output = await self.mcp.call_tool(use.name, use.input)
+                brain_results.append({"id": use.id, "output": output})
+            elif self.skill_executor and use.name.startswith(SKILL_PREFIX):
+                output = await self.skill_executor.execute(
+                    use.name[len(SKILL_PREFIX):], use.input
+                )
                 brain_results.append({"id": use.id, "output": output})
             else:
                 client_tool_calls.append({"id": use.id, "name": use.name, "input": use.input})

@@ -8,10 +8,34 @@ final class ChatViewModel: ObservableObject {
     @Published var backendOnline: Bool = false
     @Published var agentMode: Bool = true   // Stage 3: tools on by default
     @Published var lastToolSummary: String = ""
+    @Published var lastForgedSkill: String?
 
     let voice = VoiceController()
     var sessionId: String?
     var onTurn: (() -> Void)?
+
+    func forgeSkillFromChat() async {
+        guard let sid = sessionId else { return }
+        do {
+            if let skill = try await BackendClient.shared.forgeSkill(sessionId: sid) {
+                lastForgedSkill = skill.name
+                messages.append(Message(
+                    role: .assistant,
+                    text: "✨ Forged skill `\(skill.name)`: \(skill.description)"
+                ))
+            } else {
+                messages.append(Message(
+                    role: .assistant,
+                    text: "✨ Nothing in this chat looks reusable enough to crystallise into a skill yet."
+                ))
+            }
+        } catch {
+            messages.append(Message(
+                role: .assistant,
+                text: "⚠️ Forge failed: \(error.localizedDescription)"
+            ))
+        }
+    }
 
     func checkHealth() async {
         backendOnline = await BackendClient.shared.health()
@@ -185,6 +209,14 @@ struct ChatView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer()
+            Button {
+                Task { await vm.forgeSkillFromChat() }
+            } label: {
+                Image(systemName: "sparkles")
+            }
+            .buttonStyle(.plain)
+            .disabled(vm.sessionId == nil || vm.messages.count < 2)
+            .help("Forge a reusable skill from this conversation")
             Toggle("⚙︎", isOn: $vm.agentMode)
                 .toggleStyle(.button)
                 .help("Allow MIRA to use tools (AppleScript, shell, etc.)")

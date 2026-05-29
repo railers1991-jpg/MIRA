@@ -35,6 +35,7 @@ voice control, full system access, and hybrid cloud/local LLM routing.
 - [x] **Stage 8** — Persistent sessions: SQLite-backed, sidebar UI, auto-titles via Claude
 - [x] **Stage 9** — Dictate Anywhere: ⌃⌥V records from anywhere → types into the focused field
 - [x] **Stage 10** — MCP plugin host: connect any MCP server (Gmail, Calendar, Notion, web search…), tools auto-exposed to Claude
+- [x] **Stage 11** — Self-forged skills: MIRA distils successful chats into named, reusable procedures that auto-expose as Claude tools and accumulate lessons
 
 ## Quick start
 
@@ -140,6 +141,46 @@ The brain hands the merged tool list to Claude; when Claude calls an
 MCP tool, the brain executes it via the connected server and feeds the
 result back without round-tripping to the Mac. Local-only access:
 servers run as subprocesses, MCP traffic stays on stdio.
+
+## Skills — MIRA learns on the fly
+
+After a useful agent-mode conversation, tap the ✨ in the chat header
+(or `POST /skills/forge`) and Claude distils that interaction into a
+named, parameterised skill stored in SQLite. From then on the skill
+appears alongside built-in tools (`skill__<name>`) and Claude can
+pick it whenever its `when_to_use` matches the user's request.
+
+Each skill has:
+- **steps** — a deterministic playbook: `prompt` steps call Claude with
+  templated text, `tool` steps invoke MCP servers or other skills,
+  results are saved in a shared `{{var}}` context
+- **lessons** — short strings MIRA writes after runs to refine itself
+  (capped at 20, deduped, last 3 surfaced in the tool description)
+- **success_count / failure_count** — track reliability per skill
+
+```bash
+# Browse the catalogue
+curl localhost:7842/skills
+
+# Run a skill directly (the agent loop also calls them automatically)
+curl -X POST localhost:7842/skill/summarize_unread/run \
+  -H 'Content-Type: application/json' \
+  -d '{"senders": ["alice@example.com"]}'
+
+# Forge from a recent session
+curl -X POST localhost:7842/skills/forge \
+  -H 'Content-Type: application/json' \
+  -d '{"session_id": "<sid>"}'
+
+# Append a lesson based on an outcome
+curl -X POST localhost:7842/skill/summarize_unread/lesson \
+  -H 'Content-Type: application/json' \
+  -d '{"outcome": "user wanted bullets, not prose"}'
+```
+
+This is the unique angle: no other Mac assistant compiles your
+conversations into a growing personal catalogue of executable skills
+that get better the more you use them.
 
 ## Metrics
 
