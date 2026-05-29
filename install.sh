@@ -199,10 +199,16 @@ fi
 
 note_tools() {
     case "$PROVIDER" in
-        claude_code|codex|local)
+        claude_code)
+            ok "Agent mode (system control) works on your Claude subscription "\
+"via the MCP tool-bridge — no API key needed." ;;
+        codex|local)
             [[ -z "$have_key" ]] && warn \
-                "Heads-up: agent mode (system-control tools) needs an Anthropic API key. "\
-"Chat, voice & skills work on your subscription; add a key to $ENV_FILE for full tool-use." ;;
+                "Heads-up: full agent mode needs either the Claude Code CLI "\
+"(claude login) or an Anthropic API key. Chat, voice & skills work on this provider." ;;
+        auto)
+            [[ -z "$have_key" && -z "$has_claude_cli" ]] && warn \
+                "Heads-up: agent mode needs the Claude Code CLI (claude login) or an API key." ;;
     esac
 }
 note_tools

@@ -42,11 +42,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // If the local brain isn't up (common right after a GUI-only DMG
         // install), offer the one-line setup.
         Task { await BrainBootstrap.checkAndOfferSetup() }
+
+        // Register as the tool executor so subscription-driven agent mode
+        // can run Mac tools through the brain's bridge.
+        AgentSocket.shared.start()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         HotkeyManager.unregisterAll()
         wakeWord.stop()
+        AgentSocket.shared.stop()
     }
 
     @objc private func togglePanel() {

@@ -63,6 +63,7 @@ local-only via [Ollama](https://ollama.com).
 - [x] **Stage 10** — MCP plugin host: connect any MCP server (Gmail, Calendar, Notion, web search…), tools auto-exposed to Claude
 - [x] **Stage 11** — Self-forged skills: MIRA distils successful chats into named, reusable procedures that auto-expose as Claude tools and accumulate lessons
 - [x] **Stage 12** — Subscription providers: run reasoning through your Claude Pro/Max or ChatGPT/Codex plan via their CLIs — no API key required
+- [x] **Stage 13** — Subscription agent mode: MIRA's Mac tools bridged into the `claude` CLI over MCP, so full system-control works on a subscription too
 
 ## Run from source (development)
 
@@ -189,10 +190,27 @@ each CLI manages its own login session. Anything matching a privacy pattern
 (passwords, secrets, tokens) is always forced to the local model regardless
 of the selected provider.
 
-> Today the subscription path powers chat, skills, and reasoning. MIRA's
-> native system-control tool-loop still needs an Anthropic API key; bridging
-> MIRA's tools into the CLIs (so subscriptions get full agent mode too) is
-> the next step.
+### Agent mode on a subscription
+
+With the `claude` CLI logged into Pro/Max, MIRA gets **full agent mode**
+(system control, vision, clipboard…) on your subscription — no API key.
+
+How it works: the brain hosts a stdio MCP tools server (`mira-tools-server`)
+exposing its Mac tools. When agent mode runs without an API key, MIRA invokes
+`claude -p --mcp-config …` so the CLI's own loop can call those tools. Each
+call flows MCP server → brain bridge → a WebSocket to the Mac app, which runs
+it through `ToolExecutor` with the usual consent, then returns the result
+(including screenshots). The CLI sees MIRA's tools as `mcp__mira__*`.
+
+```
+claude CLI (Pro/Max)
+   │ spawns mira-tools-server (stdio MCP)
+   ▼
+mira-tools-server ──HTTP /bridge/execute──► Brain ToolBridge
+                                                 │ WebSocket /ws/agent
+                                                 ▼
+                                       Mac app · ToolExecutor + consent
+```
 
 ```bash
 curl localhost:7842/providers   # see what's available and what's active

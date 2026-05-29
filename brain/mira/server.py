@@ -1,19 +1,23 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from .agent.bridge import ToolBridge
+from .agent.cli_bridge import allowed_tool_patterns, write_mcp_config
 from .agent.orchestrator import Orchestrator
 from .config import settings
 from .learning import distill_recent_turns
 from .llm.anthropic_client import AnthropicClient
+from .llm.subscription import ClaudeCodeProvider
 from .mcp import MCPManager
 from .memory.store import MemoryStore
 from .scheduler import scheduler
@@ -66,8 +70,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings.ensure_dirs()
     app.state.memory = MemoryStore(settings.data_dir)
     app.state.skills = SkillStore(settings.data_dir)
+    app.state.bridge = ToolBridge()
     app.state.mcp = MCPManager(settings.mcp_config_path)
     await app.state.mcp.start()
+
+    brain_url = f"http://{settings.host}:{settings.port}"
+    app.state.agent_mcp_config = str(write_mcp_config(settings.data_dir, brain_url))
+    app.state.agent_allowed_tools = allowed_tool_patterns()
 
     claude = AnthropicClient() if settings.anthropic_api_key else None
     app.state.skill_executor = SkillExecutor(
@@ -103,6 +112,43 @@ app = FastAPI(title="MIRA Brain", version="0.3.0", lifespan=lifespan)
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+class BridgeExecute(BaseModel):
+    name: str
+    input: dict[str, Any] = {}
+
+
+@app.post("/bridge/execute")
+async def bridge_execute(req: BridgeExecute) -> dict[str, Any]:
+    """Run a Mac-side tool via the connected Mac executor (used by the
+    stdio MCP tools server when a subscription CLI drives agent mode)."""
+    return await app.state.bridge.request(req.name, req.input)
+
+
+@app.websocket("/ws/agent")
+async def ws_agent(ws: WebSocket) -> None:
+    """The Mac connects here to act as MIRA's tool executor for the bridge."""
+    await ws.accept()
+    bridge: ToolBridge = app.state.bridge
+    bridge.attach()
+
+    async def pump() -> None:
+        while True:
+            call = await bridge.next_outbound()
+            await ws.send_json(call)
+
+    pump_task = asyncio.create_task(pump())
+    try:
+        while True:
+            msg = await ws.receive_json()
+            if msg.get("type") == "tool_result":
+                bridge.resolve(msg["id"], msg.get("output", ""), msg.get("image_b64"))
+    except WebSocketDisconnect:
+        pass
+    finally:
+        pump_task.cancel()
+        bridge.detach()
 
 
 @app.get("/providers")
@@ -224,6 +270,22 @@ async def chat(req: ChatRequest) -> ChatResponse | StreamingResponse:
     if req.tools_enabled or req.tool_results:
         if req.stream:
             raise HTTPException(400, "streaming is not supported with tools_enabled yet")
+        # API key → native tool-loop. Otherwise, if a subscription CLI is
+        # available, let it drive the loop with MIRA's tools over MCP.
+        if settings.anthropic_api_key is None and not req.tool_results:
+            if ClaudeCodeProvider.available(settings.claude_cli_path):
+                result = await orch.agentic_via_cli(
+                    session_id=req.session_id,
+                    user_text=req.text,
+                    mcp_config_path=app.state.agent_mcp_config,
+                    allowed_tools=app.state.agent_allowed_tools,
+                )
+                return ChatResponse(**result)
+            raise HTTPException(
+                503,
+                "Agent mode needs an Anthropic API key or the Claude Code CLI "
+                "(claude login). Chat and skills work on any provider.",
+            )
         result = await orch.agentic(
             session_id=req.session_id,
             user_text=req.text,

@@ -149,6 +149,27 @@ Run distill + decay nightly via `launchd`/`cron` for autonomy. Facts,
 preferences and skills are protected from pruning even when their
 strength dips below the threshold.
 
+## Subscription agent mode (Stage 13)
+
+When agent mode runs without an Anthropic API key, MIRA delegates the
+tool-use loop to the user's logged-in `claude` CLI and bridges its own
+Mac tools back in over MCP:
+
+- `mira/mcp_server.py` — a stdio MCP server (`mira-tools-server`) advertising
+  MIRA's Mac tools (everything in `TOOLS` except brain-only `remember`).
+- `mira/agent/cli_bridge.py` — writes `~/.mira/agent-mcp.json` pointing the
+  CLI at that server, and computes the `mcp__mira__*` allow-list.
+- `orchestrator.agentic_via_cli()` — invokes `claude -p --mcp-config … \
+  --allowedTools …`; the CLI runs its loop and calls MIRA's tools.
+- `mira/agent/bridge.py` (`ToolBridge`) + `/ws/agent` + `/bridge/execute` —
+  the MCP server forwards each tool call to the brain, which routes it over
+  a WebSocket to the Mac app, awaits the result (with timeout / disconnect
+  handling), and returns it. Consent is still enforced Mac-side.
+
+So the same `ToolExecutor` + `ConsentManager` serve both paths: the
+API-key loop (brain returns tool_calls in the /chat response) and the
+subscription loop (tools arrive asynchronously over the WebSocket).
+
 ## Security
 
 - Brain binds to `127.0.0.1` only; auth token in `~/.mira/token`

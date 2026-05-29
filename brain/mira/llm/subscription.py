@@ -113,6 +113,30 @@ class ClaudeCodeProvider:
         text = await self.complete(system=system, messages=messages)
         yield text
 
+    async def complete_agentic(
+        self,
+        system: str,
+        messages: list[dict],
+        mcp_config_path: str,
+        allowed_tools: list[str],
+        timeout_s: int = 600,
+    ) -> str:
+        """Run the CLI's own agent loop with MIRA's tools attached over MCP.
+
+        The CLI discovers MIRA's Mac tools through the MCP config and
+        executes them via the brain bridge → Mac. We only get the final
+        text back; tool side-effects already happened on the Mac.
+        """
+        args = [self.cli, "-p", "--output-format", "text", "--mcp-config", mcp_config_path]
+        if allowed_tools:
+            args += ["--allowedTools", ",".join(allowed_tools)]
+        if self.model:
+            args += ["--model", self.model]
+        if system:
+            args += ["--append-system-prompt", system]
+        prompt = _conversation_to_text(messages)
+        return await _run(args, stdin_text=prompt, timeout_s=timeout_s)
+
 
 class CodexProvider:
     """Drive the `codex` (OpenAI Codex) CLI using the user's subscription."""

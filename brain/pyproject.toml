@@ -28,6 +28,7 @@ dev = [
 
 [project.scripts]
 mira-brain = "mira.server:main"
+mira-tools-server = "mira.mcp_server:main"
 
 [build-system]
 requires = ["setuptools>=68"]

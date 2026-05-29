@@ -282,6 +282,55 @@ class Orchestrator:
             "assistant_neuron_id": assistant_id,
         }
 
+    async def agentic_via_cli(
+        self,
+        session_id: str | None,
+        user_text: str | None,
+        mcp_config_path: str,
+        allowed_tools: list[str],
+    ) -> dict[str, Any]:
+        """Agent mode powered by a subscription CLI instead of the API key.
+
+        The CLI runs its own tool-use loop; MIRA's Mac tools are attached
+        over MCP and execute through the bridge → Mac while this call is
+        in flight. We persist the final text; there are no client tool_calls
+        to return because the CLI already executed them.
+        """
+        sid = session_id or uuid.uuid4().hex
+        history = self._history(sid, "agentic")
+        if user_text is not None:
+            history.append({"role": "user", "content": user_text})
+
+        query = ""
+        for entry in reversed(history):
+            if entry["role"] == "user" and isinstance(entry["content"], str):
+                query = entry["content"]
+                break
+        system, linked = self._build_system(query)
+        if user_text and query == user_text:
+            self.memory.remember(user_text, kind="turn", meta={"role": "user"}, link_to=linked)
+
+        provider = self.router.claude_code
+        text = await provider.complete_agentic(
+            system=system,
+            messages=history,
+            mcp_config_path=mcp_config_path,
+            allowed_tools=allowed_tools,
+        )
+        history.append({"role": "assistant", "content": text})
+        assistant_id = self.memory.remember(
+            text, kind="turn", meta={"role": "assistant", "model": provider.label}, link_to=linked
+        )
+        self._persist(sid, "agentic")
+        return {
+            "session_id": sid,
+            "text": text,
+            "model_used": provider.label,
+            "tool_calls": [],
+            "neurons_recalled": len(linked),
+            "assistant_neuron_id": assistant_id,
+        }
+
     @staticmethod
     def _tool_result_block(r: dict) -> dict:
         """Build an Anthropic tool_result block from a Mac-side tool result.
